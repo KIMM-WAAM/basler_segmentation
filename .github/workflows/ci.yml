@@ -32,4 +32,5 @@ jobs:
         with:
           global-json-file: app/global.json
       - run: dotnet build app/basler_segmentation.sln -c Release
+      - run: dotnet run --project app/tests/BaslerLiveView.Tests -c Release
       - run: dotnet format app/src/BaslerLiveView/BaslerLiveView.csproj --verify-no-changes

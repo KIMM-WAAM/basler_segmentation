@@ -22,7 +22,7 @@ basler_segmentation/
 
 | 경로 | 내용 | 만드는 쪽 |
 |---|---|---|
-| `raw/kimm_YYMMDD_HHMMSS[_메모]/images/` | 녹화 세션 원본 (크롭 전 풀사이즈 PNG) | 앱 REC |
+| `raw/kimm_YYMMDD_HHMMSS[_메모]/images/` | 녹화 세션 원본 (센서 전체 또는 하드웨어 ROI PNG) | 앱 REC |
 | `raw/kimm_*/labels/` · `labels_seg/` | 손으로 잡은 OBB · 와이어 seg 폴리곤 | 라벨러 |
 | `raw/_removed_black/` · `_removed_manual/` | 빼 둔 프레임 (되돌리기용) | 정리 작업 · 라벨러 삭제 |
 | `processed_seg/` · `processed_obb/` | 학습용 산출물 (크롭·분할) | `training/preprocess.py` |
@@ -62,6 +62,8 @@ dotnet build app/basler_segmentation.sln
 추론 모델은 `<Inference><Model>` — seg / obb 모델을 파일에서 알아서 구분한다. 그 파일은 빌드가
 [weights/deploy.yaml](weights/deploy.yaml) 에서 고른 보관본을 복사한 것 (clone 뒤 `git lfs pull` 필요).
 자세한 건 [app/src/BaslerLiveView/README.md](app/src/BaslerLiveView/README.md).
+`<Camera><hardware_roi>false</hardware_roi></Camera>`가 기본이며, `true`이면 `<Crop>` 영역을
+카메라 하드웨어 ROI로 수신·저장합니다. 설정 변경 후 앱을 다시 실행합니다.
 
 ## 저장소 규칙
 

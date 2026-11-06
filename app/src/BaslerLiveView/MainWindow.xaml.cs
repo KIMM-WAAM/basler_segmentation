@@ -23,8 +23,8 @@ public partial class MainWindow : Window
     private readonly string _modelPath;
 
     // The crop window feeds segmentation and mirrors what training/preprocess.py
-    // will cut the recorded PNGs down to. The live view is never cropped — it shows
-    // the whole frame with this window outlined. Recording queues frames to a worker.
+    // will cut the recorded PNGs down to. With hardware ROI enabled, the camera
+    // already crops this window, so software cropping must be bypassed.
     private readonly FrameCropper _cropper = new();
     private readonly FrameRecorder _recorder;
 
@@ -80,6 +80,13 @@ public partial class MainWindow : Window
         CropYSlider.Value = _config.CropCenterY;
         _cropUiReady = true;
         ApplyCropSettings();
+        CropControls.IsEnabled = !_config.HardwareRoi;
+        if (_config.HardwareRoi)
+        {
+            CropCheck.Content = "Hardware ROI";
+            CropControls.ToolTip = "Camera ROI is set in config.xml. Restart the app after changing it.";
+            RecordButton.ToolTip = "Save the camera ROI as PNGs (pixels outside the ROI are not captured)";
+        }
 
         LoadReferenceOverlay();
 
@@ -140,7 +147,9 @@ public partial class MainWindow : Window
         try
         {
             var item = CameraCombo.SelectedItem as CameraItem;
-            _camera.Open(item?.Info);
+            _camera.Open(item?.Info, _config);
+            lock (_overlayLock) _hasOverlay = false;
+            LoadReferenceOverlay();
 
             ConnectButton.IsEnabled = false;
             DisconnectButton.IsEnabled = true;
@@ -210,17 +219,26 @@ public partial class MainWindow : Window
 
         if (!fill && !line)
         {
+            RefOverlayCheck.IsChecked = false;
             RefOverlayCheck.IsEnabled = false;
-            RefOverlayCheck.ToolTip = "Reference cutout not found — generate it with training\\tools\\make_reference_cutout.py";
+            RefOverlayCheck.ToolTip = _config.HardwareRoi
+                ? "Connect the camera and use a reference image matching the full sensor size."
+                : "Reference cutout not found — generate it with training\\tools\\make_reference_cutout.py";
             return;
         }
+        RefOverlayCheck.IsEnabled = true;
+        RefOverlayCheck.ToolTip = "Show the reference cutout (fixed tube + wire) over the live view";
         RefOverlayCheck.IsChecked = _config.OverlayEnabled; // handler sets visibility
+        UpdateReferenceOverlayVisibility();
     }
 
     /// <summary>Load one overlay PNG into <paramref name="target"/>; false if the
     /// file is missing or unreadable (the layer then simply stays hidden).</summary>
     private bool TryLoadOverlayLayer(Image target, string configuredPath)
     {
+        target.Source = null;
+        target.Visibility = Visibility.Collapsed;
+        if (_config.HardwareRoi && !_camera.IsOpen) return false;
         var path = FrameRecorder.ResolveDirectory(configuredPath);
         if (!File.Exists(path)) return false;
         try
@@ -231,7 +249,21 @@ public partial class MainWindow : Window
             bmp.CacheOption = BitmapCacheOption.OnLoad; // read fully now; don't lock the file
             bmp.EndInit();
             bmp.Freeze();
-            target.Source = bmp;
+            if (_config.HardwareRoi && _camera.Roi.IsCropped)
+            {
+                var roi = _camera.Roi;
+                // Reference layers are full-sensor images. Crop at the actual
+                // hardware-aligned offsets instead of stretching them over the ROI.
+                if (bmp.PixelWidth != roi.SensorWidth || bmp.PixelHeight != roi.SensorHeight)
+                    return false;
+                var cropped = new CroppedBitmap(bmp, new Int32Rect(roi.X, roi.Y, roi.Width, roi.Height));
+                cropped.Freeze();
+                target.Source = cropped;
+            }
+            else
+            {
+                target.Source = bmp;
+            }
             return true;
         }
         catch (Exception ex)
@@ -241,7 +273,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private void RefOverlay_Toggled(object sender, RoutedEventArgs e)
+    private void RefOverlay_Toggled(object sender, RoutedEventArgs e) => UpdateReferenceOverlayVisibility();
+
+    private void UpdateReferenceOverlayVisibility()
     {
         bool on = RefOverlayCheck.IsChecked == true;
         RefOverlayImage.Visibility = on && RefOverlayImage.Source != null ? Visibility.Visible : Visibility.Collapsed;
@@ -269,7 +303,7 @@ public partial class MainWindow : Window
     {
         if (!_cropUiReady) return;
 
-        _cropper.Enabled = CropCheck.IsChecked == true;
+        _cropper.Enabled = !_config.HardwareRoi && CropCheck.IsChecked == true;
         if (int.TryParse(CropWidthBox.Text, out int w) && w >= 0) _cropper.Width = w;
         if (int.TryParse(CropHeightBox.Text, out int h) && h >= 0) _cropper.Height = h;
         _cropper.CenterXPercent = CropXSlider.Value;
@@ -360,10 +394,9 @@ public partial class MainWindow : Window
         if (_closing || Dispatcher.HasShutdownStarted)
             return;
 
-        // Recording saves the frame as grabbed: training data is collected at full
-        // sensor resolution and cropped later by training/preprocess.py, which crops
-        // the polygon labels along with the image. Cropping here would throw away
-        // pixels that can never be recovered.
+        // Save exactly what the camera supplies: full sensor in software mode,
+        // hardware ROI otherwise. Already-cropped recordings must not receive the
+        // original sensor crop a second time during training preprocessing.
         // No-op unless recording and the save-rate sampler is due; copies the pixels
         // out before returning.
         _recorder.Submit(width, height, bgra);
@@ -380,8 +413,9 @@ public partial class MainWindow : Window
             // Submit() copies the pixels out of the reused buffer immediately, so we
             // can return without blocking the grab loop; the annotated result arrives
             // later via OnInferredFrame and is pasted in by Compose() below.
-            // The crop origin lets the overlay also print the wire tip in full-frame pixels.
-            infer.Submit(cw, ch, cropped, ReferenceEquals(cropped, bgra) ? null : (cx, cy));
+            // Include the camera ROI offset so "full" remains a sensor coordinate
+            // in both modes, even when the camera rounded the requested ROI.
+            infer.Submit(cw, ch, cropped, _camera.Roi.InferenceOrigin(cx, cy, !ReferenceEquals(cropped, bgra)));
             bgra = Compose(width, height, bgra);
         }
 

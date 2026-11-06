@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/BaslerLiveView/BaslerLiveView.csproj" />
+    <Reference Include="Basler.Pylon">
+      <HintPath>../../external/pylon/Development/Assemblies/Basler.Pylon/net8.0/x64/Basler.Pylon.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

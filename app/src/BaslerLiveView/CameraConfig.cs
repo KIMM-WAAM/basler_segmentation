@@ -15,6 +15,10 @@ public sealed class CameraConfig
     /// is pinned to this, and exposure is capped to fit inside the frame period.</summary>
     public double FrameRate { get; set; } = 85;
 
+    /// <summary>Apply the Crop window on the sensor instead of in software.
+    /// The live view and recordings then contain only the hardware ROI.</summary>
+    public bool HardwareRoi { get; set; }
+
     /// <summary>ONNX model file name, resolved under the <c>Models\</c> folder beside the
     /// exe. YoloDotNet detects the version and task from the file, so a YOLO segmentation
     /// model (e.g. yolo26s-seg.onnx) or OBB model (yolo26s-obb.onnx) both work — see
@@ -30,9 +34,8 @@ public sealed class CameraConfig
     /// <see cref="MaxDetections"/> picks the top ones.</summary>
     public double Confidence { get; set; } = 0.24;
 
-    /// <summary>Run segmentation on a <see cref="CropWidth"/>×<see cref="CropHeight"/>
-    /// window instead of the whole frame. The live view always shows the full frame
-    /// and just outlines this window.</summary>
+    /// <summary>Use a <see cref="CropWidth"/>×<see cref="CropHeight"/> window.
+    /// HardwareRoi selects sensor cropping; otherwise only inference is cropped.</summary>
     public bool CropEnabled { get; set; } = true;
 
     /// <summary>Crop size in pixels (training capture size, e.g. 640 or 960).
@@ -66,7 +69,7 @@ public sealed class CameraConfig
     /// <summary>Outline opacity, 0–1.</summary>
     public double OutlineOpacity { get; set; } = 0.9;
 
-    /// <summary>Where the Record button writes PNGs (full sensor resolution, uncropped).
+    /// <summary>Where the Record button writes PNGs (as received from the camera).
     /// Each REC session gets its own <c>kimm_YYMMDD_HHMMSS/images</c> folder underneath.
     /// Relative paths are anchored at the repo root (see
     /// <see cref="FrameRecorder.ResolveDirectory"/>). The default is the <c>raw</c>
@@ -104,6 +107,11 @@ public sealed class CameraConfig
             {
                 var fps = (double?)cam.Element("FrameRate");
                 if (fps is > 0) cfg.FrameRate = fps.Value;
+
+                // An absent/invalid flag preserves software cropping and does not
+                // prevent the rest of the configuration from being loaded.
+                if (bool.TryParse((string?)cam.Element("hardware_roi"), out bool hardwareRoi))
+                    cfg.HardwareRoi = hardwareRoi;
             }
 
             // <Inference> — older configs used <Segmentation>; accept both.

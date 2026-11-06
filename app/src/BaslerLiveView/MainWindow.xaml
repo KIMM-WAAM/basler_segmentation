@@ -26,13 +26,13 @@
                               Checked="RefOverlay_Toggled" Unchecked="RefOverlay_Toggled"/>
                     <Separator Margin="10,0" Width="1" Background="#555"/>
                     <ToggleButton x:Name="RecordButton" Padding="10,4" Foreground="#F55" FontWeight="Bold"
-                                  Content="● REC" ToolTip="Save the cropped frames as PNGs for training"
+                                  Content="● REC" ToolTip="Save full sensor frames as PNGs for training"
                                   Checked="Record_Toggled" Unchecked="Record_Toggled"/>
                 </StackPanel>
 
-                <!-- Row 2: training-capture crop. 0% = left/top edge, 100% = right/bottom edge.
-                     The view stays full-frame; this only moves the outlined window. -->
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <!-- Software crop controls. Hardware ROI uses config.xml at Open. -->
+                <StackPanel x:Name="CropControls" Orientation="Horizontal" Margin="0,8,0,0"
+                            ToolTipService.ShowOnDisabled="True">
                     <CheckBox x:Name="CropCheck" Content="Crop" Foreground="#DDD" VerticalAlignment="Center"
                               ToolTip="Outline the training/segmentation window on the live view"
                               Checked="Crop_Changed" Unchecked="Crop_Changed"/>
@@ -68,14 +68,13 @@
             </DockPanel>
         </Border>
 
-        <!-- Live image: always the full sensor frame, so the operator can see what
-             falls outside the framing. The crop window is drawn on top as a
-             rectangle rather than actually cutting the view. -->
+        <!-- Live image: the received camera frame (full sensor or hardware ROI).
+             Software crop is outlined without cutting the view. -->
         <Grid x:Name="ViewHost" Background="Black" ClipToBounds="True" SizeChanged="ViewHost_SizeChanged">
             <Image x:Name="LiveImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="LowQuality"/>
             <!-- Reference cutout of the fixed rig (metal tube + wire), semi-transparent
                  on top of the live view. Same Uniform stretch as LiveImage: the cutout
-                 is a full-sensor-size RGBA, so both letterbox to the same rectangle. -->
+                 is cropped to the same hardware ROI when that mode is enabled. -->
             <Image x:Name="RefOverlayImage" Stretch="Uniform" IsHitTestVisible="False"
                    RenderOptions.BitmapScalingMode="LowQuality" Visibility="Collapsed"/>
             <!-- Green outline of the same silhouette, kept crisper than the fill. -->

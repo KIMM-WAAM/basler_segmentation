@@ -21,10 +21,9 @@ namespace BaslerLiveView;
 /// mostly costs disk and labelling time. <see cref="SaveFps"/> samples the grab
 /// stream down to a useful rate (2 fps by default) before anything is queued.
 ///
-/// Frames are written exactly as the camera delivered them — full sensor resolution,
-/// before the crop stage and never the segmentation overlay. Cropping to the training
-/// size is training/preprocess.py's job, because it must crop the polygon labels
-/// along with the image; pixels discarded here could never be recovered.
+/// Frames are written exactly as the camera delivered them — full sensor or hardware
+/// ROI, before any software crop and never the inference overlay. Already-cropped
+/// hardware ROI recordings should not receive the same crop again during preprocessing.
 /// </summary>
 public sealed class FrameRecorder : IDisposable
 {

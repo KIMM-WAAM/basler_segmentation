@@ -49,11 +49,13 @@ public sealed class CameraService : IDisposable
     public bool IsOpen => _camera?.IsOpen ?? false;
     public bool IsGrabbing => _camera?.StreamGrabber?.IsGrabbing ?? false;
 
+    public CameraRoi Roi { get; private set; }
+
     /// <summary>Enumerate all cameras visible to every installed transport layer.</summary>
     public static List<ICameraInfo> Enumerate() => CameraFinder.Enumerate();
 
     /// <summary>Open a camera. Pass null to open the first available device.</summary>
-    public void Open(ICameraInfo? info = null)
+    public void Open(ICameraInfo? info = null, CameraConfig? config = null)
     {
         Close();
 
@@ -63,17 +65,23 @@ public sealed class CameraService : IDisposable
         // automatically once the camera opens. Wrapped in a lambda so the
         // nullable-annotated event signature matches AcquireContinuous.
         _camera.CameraOpened += (s, e) => Configuration.AcquireContinuous(s!, e);
-        _camera.Open();
-
-        // Apply app config (config\config.xml) so acquisition settings are
-        // deterministic instead of inheriting whatever is persisted in the
-        // camera — the cause of the random 80fps↔3fps swings (stale exposure).
-        ApplyConfig(CameraConfig.Load());
+        try
+        {
+            _camera.Open();
+            // Use the same configuration as the UI so hardware and software
+            // cropping cannot disagree. Other callers can load from disk here.
+            ApplyConfig(config ?? CameraConfig.Load());
+        }
+        catch
+        {
+            Close();
+            throw;
+        }
 
         var camInfo = _camera!.CameraInfo!;
         var model = camInfo[CameraInfoKey.ModelName];
         var serial = camInfo[CameraInfoKey.SerialNumber];
-        StatusChanged?.Invoke($"Connected: {model} (SN {serial})");
+        StatusChanged?.Invoke($"Connected: {model} (SN {serial}) — ROI {Roi.Width}×{Roi.Height} +{Roi.X},+{Roi.Y}");
     }
 
     /// <summary>Push the config's acquisition settings onto the open camera so
@@ -83,12 +91,9 @@ public sealed class CameraService : IDisposable
         if (_camera == null || config.FrameRate <= 0) return;
         var p = _camera.Parameters;
 
-        // 0) Full-sensor ROI. The app never crops in hardware any more (the live view
-        //    shows the whole frame and FrameCropper handles the 640×640 window in
-        //    software), but the camera keeps whatever ROI was last written to it —
-        //    an older build set 640×640 here, and that stays until overwritten or the
-        //    camera is power-cycled. Reset explicitly so the grab is always full size.
-        ResetRoiToFullSensor();
+        // Set ROI before exposure/fps: the transmitted region affects bandwidth.
+        // Always overwrite persisted ROI, including when switching back to false.
+        ConfigureRoi(config);
 
         double periodUs = 1_000_000.0 / config.FrameRate; // frame period at target fps
 
@@ -104,11 +109,10 @@ public sealed class CameraService : IDisposable
         SetFrameRate(config.FrameRate);
     }
 
-    /// <summary>Restore the hardware ROI (OffsetX/OffsetY/Width/Height) to the whole
-    /// sensor. Offsets go to their minimum first, because a non-zero offset caps the
-    /// largest Width/Height the camera will accept; sizes then go to their maximum.
-    /// Read-only nodes (some models lock the ROI while grabbing) are reported, not fatal.</summary>
-    private void ResetRoiToFullSensor()
+    /// <summary>Apply the configured sensor window or restore full-sensor capture.
+    /// Sizes and offsets are clamped/aligned to the camera's supported increments.
+    /// A failed ROI aborts Open instead of silently using the wrong field of view.</summary>
+    private void ConfigureRoi(CameraConfig config)
     {
         var p = _camera!.Parameters;
         try
@@ -118,20 +122,34 @@ public sealed class CameraService : IDisposable
             var w = p[PLCamera.Width];
             var h = p[PLCamera.Height];
 
-            try { ox.SetValue(ox.GetMinimum()); } catch { /* may be locked until size shrinks */ }
-            try { oy.SetValue(oy.GetMinimum()); } catch { }
+            // Avoid writing unchanged read-only nodes on fixed-size cameras.
+            static void Set(IIntegerParameter node, long value)
+            {
+                if (node.GetValue() != value) node.SetValue(value);
+            }
 
-            w.SetValue(w.GetMaximum());
-            h.SetValue(h.GetMaximum());
+            Set(ox, ox.GetMinimum());
+            Set(oy, oy.GetMinimum());
+            long sensorWidth = w.GetMaximum();
+            long sensorHeight = h.GetMaximum();
+            bool crop = config.HardwareRoi && config.CropEnabled;
+            long targetWidth = crop && config.CropWidth > 0 ? config.CropWidth : sensorWidth;
+            long targetHeight = crop && config.CropHeight > 0 ? config.CropHeight : sensorHeight;
 
-            // Retry the offsets now that the size is known; at full size their travel
-            // is zero so this is a no-op on cameras that accepted the first write.
-            try { ox.SetValue(ox.GetMinimum()); } catch { }
-            try { oy.SetValue(oy.GetMinimum()); } catch { }
+            Set(w, CameraRoi.Align(targetWidth, w.GetIncrement(), w.GetMinimum(), sensorWidth));
+            Set(h, CameraRoi.Align(targetHeight, h.GetIncrement(), h.GetMinimum(), sensorHeight));
+            if (crop)
+            {
+                Set(ox, CameraRoi.AtPercent(config.CropCenterX, ox.GetIncrement(), ox.GetMinimum(), ox.GetMaximum()));
+                Set(oy, CameraRoi.AtPercent(config.CropCenterY, oy.GetIncrement(), oy.GetMinimum(), oy.GetMaximum()));
+            }
+
+            Roi = new CameraRoi((int)ox.GetValue(), (int)oy.GetValue(), (int)w.GetValue(), (int)h.GetValue(),
+                (int)sensorWidth, (int)sensorHeight);
         }
         catch (Exception ex)
         {
-            StatusChanged?.Invoke("ROI reset to full sensor failed: " + ex.Message);
+            throw new InvalidOperationException("Camera ROI configuration failed: " + ex.Message, ex);
         }
     }
 

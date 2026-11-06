@@ -54,6 +54,8 @@ __pycache__/
 # ----------------------------------------------------------------------------
 app/src/**/bin/
 app/src/**/obj/
+app/tests/**/bin/
+app/tests/**/obj/
 # 구 구조(main 의 src/) 빌드 산출물 — 브랜치 전환 후 남는 bin/obj 무시
 /src/**/bin/
 /src/**/obj/

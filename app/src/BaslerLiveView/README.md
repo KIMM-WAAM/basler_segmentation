@@ -24,15 +24,15 @@ CameraFinder.Enumerate()                    // 카메라 열거
   → StreamGrabber.Start(LatestImages, ProvidedByStreamGrabber)
   → ImageGrabbed 이벤트 (grab 스레드)
       → PixelDataConverter.Convert → BGRA byte[]
-      → FrameRecorder.Submit         // REC 중이고 저장 주기가 됐으면 '풀사이즈 원본'을 큐에 복사
+      → FrameRecorder.Submit         // REC 중이면 수신 원본(전체 센서 또는 하드웨어 ROI)을 큐에 복사
       → (Inference 켠 경우)
           FrameCropper.Crop          // 크롭본 = 모델 입력
           → InferenceService.Submit  // 최신 프레임만 처리 (밀리면 버림)
           → Compose()                // 풀 프레임 위 크롭 위치에 최신 추론 결과를 다시 얹음
-      → Dispatcher.Invoke → WriteableBitmap.WritePixels  // 항상 '풀 프레임'을 표시
+      → Dispatcher.Invoke → WriteableBitmap.WritePixels  // 수신 프레임을 표시
 ```
 
-화면은 언제나 풀 프레임이고, 크롭 영역은 그 위에 빨간 네모(`OverlayCanvas`)로 표시만 됩니다.
+기본 소프트웨어 크롭 모드에서는 화면이 풀 프레임이고, 크롭 영역은 그 위에 빨간 네모(`OverlayCanvas`)로 표시됩니다.
 바깥이 보여야 프레임을 어디로 옮길지 판단할 수 있기 때문입니다. 모델은 학습 때와 같은 화각을
 보도록 크롭본만 받고, 그 결과 오버레이는 네모 안쪽에 되돌려 그립니다.
 
@@ -54,7 +54,7 @@ YoloDotNet 이 모델의 종류를 파일에서 알아내므로 seg 모델이면
 
 ## 학습 데이터 수집 (크롭 + 레코딩)
 
-**REC는 크롭 전 풀사이즈 원본을 저장합니다.** 크롭은 추론 입력에만 실제로 걸리고,
+**기본값 `hardware_roi=false`에서는 REC가 크롭 전 풀사이즈 원본을 저장합니다.** 크롭은 추론 입력에만 실제로 걸리고,
 화면에는 네모로 표시만 됩니다. 학습용 크롭은 `training/preprocess.py` 가 담당합니다 —
 이미지만이 아니라 라벨까지 같이 잘라야 하고, 여기서 버린 픽셀은 되돌릴 수 없기 때문입니다.
 
@@ -73,6 +73,51 @@ YoloDotNet 이 모델의 종류를 파일에서 알아내므로 seg 모델이면
   - 저장되는 건 **카메라 원본**입니다 (추론 오버레이가 찍히지 않음).
 - 크기·위치 시작값과 저장 경로·저장 fps 는 `config\config.xml` 의 `<Crop>` / `<Recording>` 에서 바꿉니다.
   상대경로는 저장소 루트(= `.git` 이 있는 폴더) 기준입니다.
+
+## 하드웨어 ROI 전환
+
+`config/config.xml`에서 `<Camera><hardware_roi>`를 `true` 또는 `false`로 설정하고 **앱을 다시 실행**합니다.
+두 모드 모두 `<Crop>`의 `Enabled`, `Width`, `Height`, `CenterX`, `CenterY`를 사용합니다.
+
+| 설정 | `false` (기본, 기존 train) | `true` (하드웨어 ROI) |
+|---|---|---|
+| 카메라 수신·화면·REC | 센서 전체 | 지정한 ROI 영역만 |
+| 추론 | 수신 영상에서 소프트웨어 크롭 | 수신 ROI를 그대로 사용, 이중 크롭 없음 |
+| 크롭 툴바 | 실행 중 조절 가능 | 비활성화, XML 수정 후 재실행 |
+| 기준 이미지 오버레이 | 전체 기준 이미지 | 실제 카메라 ROI에 맞춰 기준 이미지도 크롭 |
+| 와이어 `full` 좌표 | 센서 기준 | 하드웨어 ROI의 실제 오프셋을 더한 센서 기준 |
+
+크기·위치는 카메라의 유효 범위와 증분에 맞춰 내림 정렬됩니다. `Width` 또는 `Height`가 `0`이면
+해당 축 전체를 사용하고, `<Crop><Enabled>false</Enabled>`이면 두 축 모두 전체를 사용합니다.
+`hardware_roi=false`로 돌아오면 카메라에 남아 있는 ROI를 전체 센서로 복원합니다.
+ROI 적용에 실패하면 잘못된 영역으로 촬영하지 않도록 연결을 실패 처리합니다.
+하드웨어 모드의 기준 이미지는 센서 전체 크기와 일치해야 하며, 다르면 해당 레이어를 표시하지 않습니다.
+
+이전 `data_collection`의 촬영 설정은 다음과 같이 재현합니다 (`FrameRate`는 목표값).
+
+```xml
+<Camera>
+  <FrameRate>120</FrameRate>
+  <hardware_roi>true</hardware_roi>
+</Camera>
+<Crop>
+  <Enabled>true</Enabled>
+  <Width>640</Width>
+  <Height>1280</Height>
+  <CenterX>45</CenterX>
+  <CenterY>10</CenterY>
+</Crop>
+```
+
+하드웨어 ROI로 녹화한 PNG에는 바깥 영역이 없습니다. 해당 세션을 학습할 때는 전처리 소스를 따로
+지정하고 `crop.enabled: false`로 두어 같은 크롭을 반복하지 마세요. 전체 센서 촬영과 구분하려면
+`Recording/Directory`를 별도 폴더로 지정할 수 있습니다.
+
+설정·좌표·ROI 전환·실제 프레임 수신·PNG 저장 회귀 검증 (물리 카메라 대신 pylon 에뮬레이터 사용):
+
+```powershell
+dotnet run --project app/tests/BaslerLiveView.Tests -c Release
+```
 
 ## 실행
 
