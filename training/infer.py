@@ -1,19 +1,19 @@
 """
 학습한 모델로 추론 — 사진 한 장(크롭 → 예측 그림) 또는 세션 폴더(전 프레임 → 동영상).
 
-    python infer.py --weights runs/segment/yolo26s-seg-finetune/weights/best.pt \\
-                    --source ../datasets/raw/kimm_261019_161818/images/000100__cap_261019_161818.png
-    python infer.py --weights runs/segment/yolo26s-seg-finetune/weights/best.pt \\
-                    --source ../datasets/raw/kimm_261019_161818 --fps 5
+    python infer.py --weights runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt \\
+                    --source ../datasets/kimm/raw/kimm_261019_161818/Mono/000100__cap_261019_161818.png
+    python infer.py --weights runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt \\
+                    --source ../datasets/kimm/raw/kimm_261019_161818 --fps 5
 
 - 크롭은 학습 전처리와 같은 규약(preprocess.crop_rect: W×H 픽셀, 위치 0~100%).
-  --crop auto(기본)면 configs/preprocess.yaml 의 kimm crop, "none" 이면 크롭 안 함.
-- 결과는 runs/infer/<YYMMDD_HHMMSS>/ — 사진은 <이름>_pred.jpg, 세션은 <세션>.mp4.
+  --crop auto(기본)면 --dataset 환경의 crop, "none" 이면 크롭 안 함.
+- 결과는 runs/<환경>/infer/<YYMMDD_HHMMSS>/ — 사진은 <이름>_pred.jpg, 세션은 <세션>.mp4.
 - 경로는 적은 그대로 먼저, 없으면 training/ 기준으로 찾는다. weights 는 타임스탬프를 뺀
   runs/<…>/<name>/weights/best.pt 로 적으면 그 name 의 최신 실행 (resolve_weights).
 - seg / obb 모델 모두 — 그림은 render.py (bbox 없이 마스크·OBB 윤곽). 왼쪽 위에 파일명과
   검출마다 클래스·점수·와이어 끝점(OBB 아랫변 중점, 그림에 점) 픽셀 좌표 — 크롭 기준, 크롭했으면
-  원본(풀 프레임) 좌표도. 장치에 와이어는 하나라 기본 --max-det 1 (겹친 중복 검출 제거).
+  원본(풀 프레임) 좌표도. 기본 검출 수는 KIMM 1 / BestFA 2 (겹친 중복 검출 제거).
 """
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ import argparse
 from pathlib import Path
 
 import cv2
-import yaml
 
-from common import CONFIG_DIR, HERE, IMG_EXTS, resolve, resolve_weights, run_stamp
+from common import HERE, IMG_EXTS, load_yaml, raw_image_dir, resolve, resolve_weights, run_stamp
+from dataset_paths import DATASETS, check_source_dataset, default_crop, preprocess_config
 from preprocess import crop_rect
 
 BATCH = 16
@@ -34,22 +34,11 @@ def find(path_str: str) -> Path:
     return p if p.exists() else resolve(path_str)
 
 
-def default_crop() -> dict | None:
-    """configs/preprocess.yaml 의 kimm crop (켜져 있고 auto_crop 이 아닐 때)."""
-    cfg = yaml.safe_load((CONFIG_DIR / "preprocess.yaml").read_text(encoding="utf-8")) or {}
-    for src in cfg.get("sources") or []:
-        if src.get("name") == "kimm":
-            crop = src.get("crop") or {}
-            if crop.get("enabled") and not (crop.get("auto_crop") or {}).get("enabled"):
-                return crop
-    return None
-
-
-def parse_crop(text: str) -> dict | None:
-    """'' / 'auto' → preprocess.yaml 값, 'none' → 크롭 안 함, 'W H CX CY' → 그 값."""
+def parse_crop(text: str, dataset: str = "kimm") -> dict | None:
+    """'' / 'auto' → 선택한 환경의 크롭, 'none' → 크롭 안 함, 'W H CX CY' → 그 값."""
     text = (text or "").strip()
     if not text or text.lower() == "auto":
-        return default_crop()
+        return default_crop(dataset)
     if text.lower() == "none":
         return None
     try:
@@ -60,10 +49,11 @@ def parse_crop(text: str) -> dict | None:
 
 
 def frames_of(source: Path) -> list:
-    """사진 한 장 → [그 사진], 세션 폴더(또는 그 images/) → 정렬된 이미지 전부."""
+    """사진 한 장 → [그 사진], 세션 폴더(또는 그 Mono/) → 정렬된 이미지 전부."""
     if source.is_file():
         return [source]
-    d = source / "images" if (source / "images").is_dir() else source
+    raw = raw_image_dir(source)
+    d = raw if raw.is_dir() else source
     files = sorted(p for p in d.iterdir() if p.suffix.lower() in IMG_EXTS)
     if not files:
         raise SystemExit(f"이미지가 없습니다: {d}")
@@ -73,14 +63,17 @@ def frames_of(source: Path) -> list:
 def main() -> None:
     ap = argparse.ArgumentParser(description="학습한 모델로 추론 (사진 → 그림, 세션 → 동영상)")
     ap.add_argument("--weights", required=True, help="best.pt (training/ 기준 또는 절대경로)")
-    ap.add_argument("--source", required=True, help="사진 파일 또는 세션 폴더(datasets/raw/kimm_…)")
-    ap.add_argument("--crop", default="auto", help="'W H CX CY' / auto = preprocess.yaml / none")
+    ap.add_argument("--dataset", choices=DATASETS, default="kimm", help="크롭 설정·결과 저장 환경")
+    ap.add_argument("--source", required=True, help="사진 파일 또는 세션 폴더(datasets/<환경>/raw/<세션>)")
+    ap.add_argument("--crop", default="auto", help="'W H CX CY' / auto = 환경별 전처리 크롭 / none")
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--imgsz", type=int, default=640)
-    ap.add_argument("--max-det", type=int, default=1, help="한 장에 남길 최대 검출 수 (와이어는 하나)")
+    ap.add_argument("--max-det", type=int, help="최대 검출 수 (기본: 환경별 wire_count, KIMM 1 / BestFA 2)")
     ap.add_argument("--fps", type=float, default=5, help="세션 동영상 fps")
-    ap.add_argument("--out", default="", help="결과 폴더 (기본 runs/infer/<시각>/)")
+    ap.add_argument("--out", default="", help="결과 폴더 (기본 runs/<환경>/infer/<시각>/)")
     args = ap.parse_args()
+    if args.max_det is None:
+        args.max_det = int(load_yaml(preprocess_config(args.dataset)).get("wire_count", 1))
 
     weights = Path(args.weights) if Path(args.weights).exists() else resolve_weights(args.weights)
     if not weights.exists():
@@ -88,9 +81,13 @@ def main() -> None:
     source = find(args.source)
     if not source.exists():
         raise SystemExit(f"입력이 없습니다: {source}")
-    crop = parse_crop(args.crop)
+    try:
+        check_source_dataset(source, args.dataset)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+    crop = parse_crop(args.crop, args.dataset)
     files = frames_of(source)
-    out = find(args.out) if args.out else HERE / "runs" / "infer" / run_stamp()
+    out = find(args.out) if args.out else HERE / "runs" / args.dataset / "infer" / run_stamp()
     out.mkdir(parents=True, exist_ok=True)
 
     from ultralytics import YOLO
@@ -137,7 +134,7 @@ def main() -> None:
         print(f"[infer] → {dst}")
         return
 
-    session = source.name if source.name != "images" else source.parent.name
+    session = source.parent.name if source.name in ("Mono", "images") else source.name
     dst = out / f"{session}.mp4"
     writer = None
     for i in range(0, len(files), BATCH):

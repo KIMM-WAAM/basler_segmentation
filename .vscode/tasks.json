@@ -4,6 +4,16 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "run labeller",
+      "detail": "라벨러 실행 → http://127.0.0.1:8765 (화면에서 KIMM / BestFA 선택)",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "python", "-u", "labeller/server.py"],
+      "options": { "cwd": "${workspaceFolder}/training" },
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
       "label": "train",
       "detail": "choose configs/train.*.yaml",
       "type": "process",
@@ -18,6 +28,7 @@
       "type": "process",
       "command": "uv",
       "args": ["run", "--extra", "train", "--extra", "export", "infer.py",
+               "--dataset", "${input:dataset}",
                "--weights", "${input:weights}", "--source", "${input:image}", "--crop", "${input:crop}"],
       "options": { "cwd": "${workspaceFolder}/training" },
       "problemMatcher": []
@@ -28,6 +39,7 @@
       "type": "process",
       "command": "uv",
       "args": ["run", "--extra", "train", "--extra", "export", "infer.py",
+               "--dataset", "${input:dataset}",
                "--weights", "${input:weights}", "--source", "${input:session}",
                "--crop", "${input:crop}", "--fps", "${input:fps}"],
       "options": { "cwd": "${workspaceFolder}/training" },
@@ -54,13 +66,23 @@
   ],
   "inputs": [
     {
+      "id": "dataset",
+      "type": "pickString",
+      "description": "촬영 환경 (크롭·기준 이미지·산출물 분리)",
+      "options": ["kimm", "bestfa"],
+      "default": "kimm"
+    },
+    {
       "id": "trainConfig",
       "type": "pickString",
       "description": "학습 config",
       "options": [
-        { "label": "train.single.yaml — seg, val/test 분리 (측정용, early stop)", "value": "train.single.yaml" },
+        { "label": "KIMM — seg, val/test 분리 (측정용)", "value": "train.single.yaml" },
         { "label": "train.seg_all.yaml — seg, 전체 데이터 (배포용)", "value": "train.seg_all.yaml" },
-        { "label": "train.obb_all.yaml — obb, 전체 데이터 (배포용, preprocess --task obb 선행)", "value": "train.obb_all.yaml" }
+        { "label": "train.obb_all.yaml — obb, 전체 데이터 (배포용, preprocess --task obb 선행)", "value": "train.obb_all.yaml" },
+        { "label": "BestFA — seg, val/test 분리 (측정용)", "value": "train.bestfa.single.yaml" },
+        { "label": "BestFA — seg, 전체 데이터", "value": "train.bestfa.seg_all.yaml" },
+        { "label": "BestFA — obb, 전체 데이터", "value": "train.bestfa.obb_all.yaml" }
       ],
       "default": "train.single.yaml"
     },
@@ -108,8 +130,8 @@
       "type": "command",
       "command": "extension.commandvariable.file.pickFile",
       "args": {
-        "description": "사진 (datasets/raw/kimm_*/images) — 파일명 일부(예: 161818 000270)를 입력해서 거르기",
-        "include": "datasets/raw/kimm_*/images/*.{png,jpg,bmp}",
+        "description": "사진 — 선택한 촬영 환경과 같은 환경의 사진을 고르세요",
+        "include": "datasets/{kimm,bestfa}/raw/*/Mono/*.{png,jpg,jpeg,bmp}",
         "display": "fileName",
         "keyRemember": "image"
       }
@@ -119,8 +141,8 @@
       "type": "command",
       "command": "extension.commandvariable.file.pickFile",
       "args": {
-        "description": "세션 폴더 (datasets/raw/kimm_*)",
-        "include": "datasets/raw/kimm_*/data.yaml",
+        "description": "촬영 세션 폴더",
+        "include": "datasets/{kimm,bestfa}/raw/*/data.yaml",
         "display": "transform",
         "valueTransform": { "text": "${fileDirname}" },
         "labelTransform": { "text": "${fileDirname}", "find": "^.*[\\\\/]", "replace": "" },
@@ -132,7 +154,7 @@
       "type": "pickString",
       "description": "크롭 'W H CX% CY%'",
       "options": [
-        { "label": "auto — preprocess.yaml 값 (학습과 같은 크롭)", "value": "auto" },
+        { "label": "auto — 선택한 환경의 전처리 크롭", "value": "auto" },
         { "label": "1280 1280 40 40 — 앱 config.xml 크롭 위치", "value": "1280 1280 40 40" },
         { "label": "1280 1280 50 50 — 정중앙", "value": "1280 1280 50 50" },
         { "label": "none — 크롭 안 함 (원본 전체)", "value": "none" }

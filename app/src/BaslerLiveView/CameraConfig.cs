@@ -50,31 +50,34 @@ public sealed class CameraConfig
     public double CropCenterY { get; set; } = 50;
 
     /// <summary>Show the reference cutout (the fixed metal tube + wire, cut out of
-    /// datasets/reference/reference.png by training/tools/make_reference_cutout.py) on top of the live
+    /// datasets/kimm/reference/reference.png by training/tools/make_reference_cutout.py) on top of the live
     /// view. The camera is eye-in-hand, so that rig sits at the same screen position
     /// in every frame — only the wire's length varies.</summary>
     public bool OverlayEnabled { get; set; } = true;
 
     /// <summary>RGBA cutout file. Relative paths are anchored at the repo root
     /// (same rule as <see cref="RecordDir"/>). A missing file disables the overlay.</summary>
-    public string OverlayPath { get; set; } = "datasets/reference/reference_cutout.png";
+    public string OverlayPath { get; set; } = "datasets/kimm/reference/reference_cutout.png";
 
     /// <summary>Overlay opacity, 0–1. Kept low so the live image shows through.</summary>
     public double OverlayOpacity { get; set; } = 0.35;
 
     /// <summary>Green outline traced around the cutout's silhouette (produced by the
     /// same script). A separate layer so it can stay crisp while the fill is faint.</summary>
-    public string OutlinePath { get; set; } = "datasets/reference/reference_outline.png";
+    public string OutlinePath { get; set; } = "datasets/kimm/reference/reference_outline.png";
 
     /// <summary>Outline opacity, 0–1.</summary>
     public double OutlineOpacity { get; set; } = 0.9;
 
     /// <summary>Where the Record button writes PNGs (as received from the camera).
-    /// Each REC session gets its own <c>kimm_YYMMDD_HHMMSS/images</c> folder underneath.
+    /// Each REC session gets its own <c>kimm_YYMMDD_HHMMSS/Mono</c> folder underneath.
     /// Relative paths are anchored at the repo root (see
     /// <see cref="FrameRecorder.ResolveDirectory"/>). The default is the <c>raw</c>
     /// folder whose <c>kimm_*</c> sessions training/preprocess.py reads.</summary>
-    public string RecordDir { get; set; } = "datasets/raw";
+    public string RecordDir { get; set; } = "datasets/kimm/raw";
+
+    /// <summary>Session folder prefix for the selected capture environment.</summary>
+    public string RecordSessionPrefix { get; set; } = "kimm";
 
     /// <summary>How many frames per second Record saves. Consecutive grabs are nearly
     /// identical, so the grab stream is sampled down to something worth labelling.
@@ -172,6 +175,9 @@ public sealed class CameraConfig
             {
                 var dir = (string?)rec.Element("Directory");
                 if (!string.IsNullOrWhiteSpace(dir)) cfg.RecordDir = dir.Trim();
+
+                var prefix = (string?)rec.Element("SessionPrefix");
+                if (!string.IsNullOrWhiteSpace(prefix)) cfg.RecordSessionPrefix = prefix.Trim();
 
                 // 0 is meaningful here (= save every frame), so accept it too.
                 var saveFps = (double?)rec.Element("Fps");

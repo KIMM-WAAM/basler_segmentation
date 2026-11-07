@@ -2,6 +2,18 @@
 
 Basler pylon 카메라 실시간 영상 + 녹화 + 학습한 YOLO 모델(seg 또는 obb)로 실시간 추론하는 WPF 앱.
 
+촬영 환경은 실행할 때 선택한다. 기본 KIMM은 `config/config.xml`, BestFA는
+`config/config.bestfa.xml`을 읽으며 녹화 경로·세션 접두어·기준 이미지·크롭·모델을 따로 둔다.
+
+```powershell
+BaslerLiveView.exe --dataset kimm
+BaslerLiveView.exe --dataset bestfa
+# 카메라 없이 확인: 위 명령에 --emulate 추가
+```
+
+BestFA는 크롭을 끈 상태로 시작한다. 전용 기준 이미지와 학습 모델을 준비한 뒤 해당 설정에 연결한다.
+BestFA 모델 배포 시 `weights/deploy.yaml`에 `bestfa-yolo26s-seg.onnx`를 추가한다.
+
 ## 구성
 
 | 파일 | 역할 |
@@ -12,7 +24,7 @@ Basler pylon 카메라 실시간 영상 + 녹화 + 학습한 YOLO 모델(seg 또
 | `InferenceService.cs` | YoloDotNet(DirectML) 추론 — 모델 파일을 보고 seg(마스크) / obb(회전 박스) 자동 선택 |
 | `CameraConfig.cs` | `config\config.xml` 로드 |
 | `MainWindow.xaml(.cs)` | 카메라 선택·연결·시작/정지 · 크롭 · 기구부 오버레이 · REC · Inference UI |
-| `App.xaml.cs` | `--emulate` 인자로 소프트웨어 카메라 에뮬레이터 활성화 |
+| `App.xaml.cs` | `--dataset` 촬영 환경 선택 · `--emulate` 소프트웨어 카메라 에뮬레이터 |
 | `BaslerLiveView.csproj` | `Basler.Pylon.dll` 참조 + `external\pylon\Runtime\x64` 네이티브 DLL·`Models\*.onnx` 를 출력 폴더로 복사 |
 
 ## 동작 흐름
@@ -62,9 +74,9 @@ YoloDotNet 이 모델의 종류를 파일에서 알아내므로 seg 모델이면
   - 0% = 왼쪽/위 끝, 100% = 오른쪽/아래 끝, 50% = 중앙.
   - 네모 위에 `1280×1280 (40%, 40%)` 처럼 현재 값이 표시됩니다.
   - 크롭 크기가 센서 이미지보다 크면 원본 크기로 클램프되고, 네모는 사라집니다(= 잘릴 게 없음).
-  - 학습 쪽 크롭은 `training/configs/preprocess.yaml` 의 `crop` (또는 라벨러의 크롭 칸) — 같은 0~100% 규약.
+  - 학습 쪽 크롭은 `training/configs/preprocess.kimm.yaml` 의 `crop` (또는 라벨러의 크롭 칸) — 같은 0~100% 규약.
 - **`● REC` 버튼**: 한 번 누르면 저장 시작, 다시 누르면 중지. 저장 현황은 상태바 오른쪽에 표시.
-  - REC 를 켤 때마다 세션 폴더가 새로 생깁니다: `datasets/raw/kimm_YYMMDD_HHMMSS/images/`.
+  - REC 를 켤 때마다 세션 폴더가 새로 생깁니다: `datasets/<환경>/raw/<환경>_YYMMDD_HHMMSS/Mono/`.
     학습 쪽은 이 세션 폴더들을 글롭(`kimm_*`)으로 한꺼번에 읽습니다.
   - 저장 속도는 `<Recording><Fps>`. 연속 프레임은 거의 똑같아서 전부 저장하면 디스크와 라벨링
     시간만 낭비됩니다. 그랩은 `<FrameRate>` 그대로 돌고 저장만 샘플링합니다 (`0` = 모든 프레임).

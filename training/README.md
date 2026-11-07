@@ -4,8 +4,8 @@
 
 ```
 labeller/  →  preprocess.py  →  train.py (single)  →  eval.py  →  train.py (seg_all · obb_all)  →  archive.py  →  weights/deploy.yaml
- 라벨링        processed_seg/    측정 · best epoch     test 1회     전체 데이터로 재학습              ../weights/    앱 빌드가 고른 모델을 복사
-               processed_obb/
+ 라벨링        processed/seg/    측정 · best epoch     test 1회     전체 데이터로 재학습              ../weights/    앱 빌드가 고른 모델을 복사
+               processed/obb/
 ```
 
 ## 구성
@@ -22,7 +22,7 @@ labeller/  →  preprocess.py  →  train.py (single)  →  eval.py  →  train.
 | `augment.py` | Ultralytics 키로 못 내는 증강 — 밝기 배율 · 블러 |
 | `common.py` | config 로드(+ `base:` 상속) · 경로 해석 · 로그 |
 | `tools/make_reference_cutout.py` | 기구부 기준 이미지 → 누끼·윤곽선 (앱·라벨러 오버레이) |
-| `configs/` | `preprocess.yaml`, `train.*.yaml` (+ 공통 `base/train.yaml`), `eval.*.yaml` |
+| `configs/` | `preprocess.kimm.yaml`, `train.*.yaml` (+ 공통 `base/train.yaml`), `eval.*.yaml` |
 | `tests/` | pytest — 합성 데이터로 파이프라인 전체 검증 (GPU·데이터 불필요) |
 
 ## 설치 · 실행
@@ -34,49 +34,109 @@ labeller/  →  preprocess.py  →  train.py (single)  →  eval.py  →  train.
 cd training
 uv sync --extra train --extra export        # torch(cu128) · ultralytics · ONNX + dev(pytest · ruff)
 uv run labeller/server.py                   # 라벨러 → http://localhost:8765
-uv run preprocess.py                        # → ../datasets/processed_seg/
-uv run preprocess.py --task obb --out ../datasets/processed_obb   # OBB 학습할 때만
+uv run preprocess.py                        # → ../datasets/kimm/processed/seg/
+uv run preprocess.py --task obb --out ../datasets/kimm/processed/obb   # OBB 학습할 때만
 uv run train.py --config train.single.yaml
 uv run eval.py --config eval.single.yaml
-uv run infer.py --weights runs/segment/yolo26s-seg-finetune/weights/best.pt --source ../datasets/raw/kimm_261019_161818
+uv run infer.py --dataset kimm --weights runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt --source ../datasets/kimm/raw/kimm_261019_161818
 ```
 
 > **`uv sync` 는 항상 `--extra train --extra export` 와 함께.** extra 없이 돌리면 uv 가 환경을
 > 정확히 맞추느라 torch 등을 지운다 (라벨링만 하는 머신이면 그게 의도).
 
-VS Code: `Ctrl+Shift+P → Tasks: Run Task` 의 `training: train` · `training: inference — 사진 1장 /
-세션 → 동영상` · `training: tensorboard` (`.vscode/tasks.json`).
+VS Code: `Ctrl+Shift+P → Tasks: Run Task`에서 `run labeller`, `train`, `inference — picture`,
+`inference — movie`, `tensorboard`를 선택한다 (`.vscode/tasks.json`).
 
 ## 라벨링 (`labeller/`)
+
+저장소 루트와 `training/` 양쪽에서 아래 명령을 실행할 수 있다. 루트의 실행기는
+`training/`의 uv 환경을 사용한다. 실행 후 브라우저에서 `http://127.0.0.1:8765`를 연다.
+
+```powershell
+uv run labeller/server.py
+```
+
+화면 상단의 **프리셋**에서 **KIMM / BestFA**를 고른다. 이미지 목록·크롭·기준 이미지와 와이어
+개수가 함께 바뀐다. 저장하지 않은 라벨·크롭 변경이 있으면 전환 전에 확인하며, 저장·경계 계산
+중에는 완료 후 전환할 수 있다. 새로고침해도 주소에 담긴 선택이 유지된다.
+`--dataset`은 생략해도 되며, 지정하면 처음 표시할 프리셋만 바뀐다 (기본 KIMM).
+
+VS Code의 **run labeller** task는 바로 서버를 실행하고 프리셋은 같은 화면에서 고른다.
+같은 포트의 이전 서버가 켜져 있으면
+그 터미널에서 `Ctrl+C`로 종료한 뒤 다시 실행하거나 `--port 8766`으로 다른 포트를 쓴다.
 
 카메라가 기구에 붙어(eye-in-hand) 튜브·와이어가 화면에서 늘 같은 자리라, 와이어 박스를 그리지 않고
 기준 자세에서 **우측 상단 꼭짓점(튜브 출구)을 축으로 옮기고 돌려** 맞춘다.
 
-- 세션별 보기 (↑↓ 세션, ←→ 이미지), 앱과 같은 기구부 오버레이, 크롭 창 조절 → `preprocess.yaml` 에 저장
+- KIMM은 와이어 1개, BestFA는 **와이어 2개**. 선택 메뉴·숫자 `1`/`2`·박스 클릭으로 편집할 와이어를 고른다.
+  OBB 저장·복사는 두 박스를 함께 처리하고, 끝 경계도 두 와이어를 모두 계산한 후 seg로 저장한다.
+- 세션별 보기 (↑↓ 세션, ←→ 이미지), 기구부 오버레이, 크롭 창 조절 → 선택한 환경의 `preprocess.<환경>.yaml`에 저장
 - 일괄 덮어쓰기: 세션 전체 / 이 번호부터 끝까지 / 이 번호부터 N번까지
 - 끝 경계: **Compute edge 1** (OBB 윗변·옆변 + 영상에서 찾은 끝 곡선) 또는 **OBB as edge** →
   `labels_seg/` 에 와이어 폴리곤 저장. OBB 를 바꾼 장은 seg 가 지워지고 edge 1 로 다시 계산
-- 이미지 삭제(Shift+Delete) → `datasets/raw/_removed_manual/` 로 이동 (되돌릴 수 있음)
+- 이미지 삭제(Shift+Delete) → `datasets/<환경>/raw/_removed_manual/` 로 이동 (되돌릴 수 있음)
 
 산출물 (세션 폴더마다): `labels/` = 손으로 잡은 OBB, `labels_seg/` = 학습에 쓰는 와이어 폴리곤.
 
-## 데이터 · 전처리 (`preprocess.py`, `configs/preprocess.yaml`)
+## 데이터 · 전처리 (`preprocess.py`, `configs/preprocess.kimm.yaml`)
 
+```text
+datasets/<환경>/                환경 = kimm 또는 bestfa
+  raw/<환경>_<날짜>/             Mono/ + labels/ + labels_seg/ + data.yaml
+  reference/                    그 환경의 기구부·와이어 기준 이미지
+  processed/seg/                preprocess.py 산출물
+    data.yaml                   해당 환경 안의 소스 통합본
+    <소스>/                     현재는 환경 이름과 같음 (kimm / bestfa)
+      images/{train,val,test}/
+      labels/{train,val,test}/   전처리한 이미지 좌표의 YOLO seg 라벨
+      data.yaml, data.all.yaml, preview/
+  processed/obb/                같은 소스를 --task obb 로 변환한 결과
 ```
-datasets/
-  raw/kimm_YYMMDD_HHMMSS[_메모]/   앱 REC 세션 — images/ + labels/ + labels_seg/
-  processed_seg/                 preprocess.py 산출물 (task: seg)
-    data.yaml                    전 소스 통합본 (train.single · eval.single)
-    kimm/images|labels/{train,val,test}, preview/, data.yaml (eval.final), data.all.yaml (seg_all)
-  processed_obb/                 같은 소스를 --task obb 로 구운 것 (obb_all)
-  reference/                     기구부 기준 이미지·누끼·윤곽선
+
+원본 `labels/`는 OBB, `labels_seg/`는 분할 폴리곤이다. `processed/`에는 변환된 이미지와
+그에 맞는 라벨을 함께 저장한다. 학습 입력은 seg/obb 모두 YOLO의 `images/`·`labels/` 규약을 쓴다.
+
+### 촬영 환경 선택
+
+| 작업 | KIMM | BestFA |
+|---|---|---|
+| 전처리 설정 | `configs/preprocess.kimm.yaml` | `configs/preprocess.bestfa.yaml` |
+| 라벨러 (`uv run labeller/server.py`) | GUI 프리셋 **KIMM** | GUI 프리셋 **BestFA** |
+| seg 전처리 | `uv run preprocess.py --dataset kimm` | `uv run preprocess.py --dataset bestfa` |
+| obb 전처리 | 위 명령에 `--task obb` 추가 | 위 명령에 `--task obb` 추가 |
+| 측정 학습 | `uv run train.py --config train.single.yaml` | `uv run train.py --config train.bestfa.single.yaml` |
+| val / test 평가 | `eval.single.yaml` / `eval.final.yaml` | `eval.bestfa.single.yaml` / `eval.bestfa.final.yaml` |
+| 전체 데이터 학습 | `train.seg_all.yaml` / `train.obb_all.yaml` | `train.bestfa.seg_all.yaml` / `train.bestfa.obb_all.yaml` |
+
+라벨러는 GUI에서 환경을 고른다. 전처리·추론은 `--dataset` 생략 시 KIMM을 사용한다.
+학습/평가는 항상 `--config`로 선택한다.
+학습·추론 결과는 `runs/<환경>/`, 평가 그림은 `eval/<환경>/`에 저장한다.
+BestFA는 KIMM 기준 이미지와 크롭을 물려받지 않는다. 초기 크롭은 꺼져 있다.
+`datasets/bestfa/reference/reference_wire.png`의 **빨간 영역 두 개**를 각각 와이어의 기준 박스로 읽고,
+`reference_outline.png`를 기구부 윤곽 오버레이로 쓴다. 두 PNG의 흰 배경은 라벨러에서 표시할 때만
+투명하게 처리하며 원본 파일은 보존한다. BestFA에는 `reference_tube.png`가 없어도 된다.
+라벨러에서 크롭을 조절하면 BestFA 설정에 저장한다.
+
+### BestFA 원본 가져오기
+
+```powershell
+# training/에서. 원본은 보존하고 프로젝트 안으로 복사한다.
+uv run tools/import_bestfa.py --source "C:\Users\user\Desktop\주관기관공유\261028_BestFA_DB\261026_115301\Mono"
 ```
+
+`<세션>/Mono`, 세션 폴더 또는 DB 루트를 받을 수 있다. DB 루트를 지정하면 바로 아래 모든 세션의
+`Mono`를 가져온다. 대상은 `datasets/bestfa/raw/bestfa_<세션>/Mono/`이며, 세션 간 파일명 충돌을
+막기 위해 `bestfa_<세션>__` 접두어를 붙인다. 원본 경로·이름 대응은 세션의 `import.json`에 남는다.
+동일 내용은 재실행해도 건너뛰고, 내용이 다른 기존 파일은 덮어쓰지 않는다.
+가져오기는 라벨을 생성하지 않는다. `labels/`, `labels_seg/`를 라벨러로 채운 다음 전처리한다.
+검증·테스트를 분리하려면 라벨된 세션을 여러 개 준비해야 한다. 전체 재학습 epochs는 BestFA 측정
+학습의 best epoch로 정한다.
 
 `sources:` 항목 하나가 데이터셋 하나:
 
 | 인자 | 뜻 |
 |---|---|
-| `path` | 소스 폴더. 마지막 칸 글롭(`../datasets/raw/kimm_*`)이면 세션 폴더 전부를 한 소스로 — 세션이 늘어도 config 그대로. 빼고 싶은 세션은 폴더 이름을 `kimm_` 로 시작하지 않게 |
+| `path` | 소스 폴더. 마지막 칸 글롭(`../datasets/kimm/raw/kimm_*`)이면 세션 폴더 전부를 한 소스로 — 세션이 늘어도 config 그대로. 빼고 싶은 세션은 폴더 이름을 `kimm_` 로 시작하지 않게 |
 | `labels` | 라벨 폴더 이름 (기본 `labels`). kimm 은 `labels_seg` |
 | `names` | 폴더에 `data.yaml` 이 없을 때 쓰는 원본 클래스 이름 |
 | `class_map` | 원본 클래스명 → 최종 클래스명. 여기 없는 클래스는 버림 |
@@ -99,7 +159,7 @@ datasets/
 |---|---|---|---|---|
 | `train.single.yaml` | seg | train 세션 / val·test 분리 | early stop (patience 50) | 측정용 |
 | `train.seg_all.yaml` | seg | 전체 (`data.all.yaml`) | epochs = single 의 best epoch | `yolo26s-seg.onnx` 후보 |
-| `train.obb_all.yaml` | obb | 전체 (`processed_obb`) | epochs = single 의 best epoch | `yolo26s-obb.onnx` 후보 |
+| `train.obb_all.yaml` | obb | 전체 (`processed/obb`) | epochs = single 의 best epoch | `yolo26s-obb.onnx` 후보 |
 
 - **순서**: `single` 로 성능을 재고(진짜 val 로 early stop), 그 best epoch 를 `*_all` 의 `epochs` 에 넣어
   데이터를 다 넣고 다시 학습한다. `*_all` 은 val 이 train 과 겹쳐 early stop 이 과적합을 못 잡기 때문.
@@ -127,13 +187,13 @@ datasets/
   오염된다.
 - 그림: `eval/<시각>__<가중치>__<데이터셋>-<split>/` — 초록 = 정답, 빨강 = 추론(seg 는 마스크 윤곽),
   점선 = 가장 아래 두 점의 y (와이어 끝 높이 오차).
-- `infer.py` — 크롭(`auto` = preprocess.yaml 값, `W H CX CY`, `none`) 후 예측. 사진이면 `<이름>_pred.jpg`,
-  세션 폴더면 `<세션>.mp4` (`runs/infer/<시각>/`).
+- `infer.py --dataset <환경>` — 크롭(`auto` = 선택한 환경의 설정, `W H CX CY`, `none`) 후 예측.
+  사진이면 `<이름>_pred.jpg`, 세션 폴더면 `<세션>.mp4` (`runs/<환경>/infer/<시각>/`).
 
 ## config 규약 — 조용한 기본값 없음
 
-- 후보가 여럿인 스크립트(`train.py`, `eval.py`)는 `--config` 없이 돌지 않는다. 후보가 하나뿐이면
-  (`preprocess.yaml`) 생략 가능. 읽은 config 경로는 항상 로그 첫 줄에 찍힌다.
+- 학습·평가는 `--config` 없이 돌지 않는다. 전처리는 `--dataset`으로 선택하며 생략 시 KIMM이다.
+  읽은 config 경로는 항상 로그 첫 줄에 찍힌다.
 - `stages` 블록·키 오타·전부 false, `train.data`·`train.model` 누락은 추측하지 않고 오류.
 - `train.model` 에 경로 구분자가 있으면 체크포인트로 보고 존재를 확인, 없으면(`yolo26s-seg.pt`)
   Ultralytics 가 받아올 이름.

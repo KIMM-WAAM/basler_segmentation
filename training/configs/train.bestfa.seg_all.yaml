@@ -1,0 +1,12 @@
+# BestFA 전용 학습. KIMM 데이터·학습 결과와 분리.
+# 전체 재학습 epochs는 BestFA single 실행의 best epoch로 조정하세요.
+base: base/train.yaml
+dataset: bestfa
+
+train:
+  model: yolo26s-seg.pt
+  data: ../datasets/bestfa/processed/seg/bestfa/data.all.yaml
+  epochs: 100
+  patience: 0
+  project: runs/bestfa/segment
+  name: bestfa-yolo26s-seg-all

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Config>
+  <!-- BestFA 촬영 환경. 크롭과 기준 이미지는 BestFA에서 따로 맞춥니다. -->
+  <Camera><FrameRate>80</FrameRate><hardware_roi>false</hardware_roi></Camera>
+  <Inference>
+    <Model>bestfa-yolo26s-seg.onnx</Model>
+    <MaxDetections>2</MaxDetections><Confidence>0.25</Confidence>
+  </Inference>
+  <Crop>
+    <Enabled>false</Enabled><Width>0</Width><Height>0</Height>
+    <CenterX>50</CenterX><CenterY>50</CenterY>
+  </Crop>
+  <ReferenceOverlay>
+    <Enabled>true</Enabled>
+    <Path>datasets/bestfa/reference/reference_cutout.png</Path><Opacity>0.35</Opacity>
+    <OutlinePath>datasets/bestfa/reference/reference_outline.png</OutlinePath><OutlineOpacity>0.9</OutlineOpacity>
+  </ReferenceOverlay>
+  <Recording>
+    <SessionPrefix>bestfa</SessionPrefix><Directory>datasets/bestfa/raw</Directory>
+    <Fps>3</Fps><QueueCapacity>120</QueueCapacity>
+  </Recording>
+</Config>

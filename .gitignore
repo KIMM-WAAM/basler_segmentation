@@ -13,25 +13,36 @@
 
 # ----------------------------------------------------------------------------
 # datasets/ — 데이터는 git 밖 (용량 큼). 폴더 규약은 README.md 참고.
-#   raw/kimm_*/ (앱 REC 원본 + labels/ + labels_seg/), raw/rf_*/ (공개셋),
-#   processed_seg/ · processed_obb/ (전처리 산출물), reference/ (기구부 기준 이미지)
+#   <환경>/raw/<세션>/ (원본 + labels/ + labels_seg/),
+#   <환경>/processed/{seg,obb}/ (전처리), <환경>/reference/ (기구부 기준 이미지)
 # 예외: 새로 clone 한 곳에서 라벨러·전처리가 바로 도는지 볼 샘플 1장 (세션 하나에 이미지 + 라벨).
 #   git 은 제외된 폴더 안을 들여다보지 않으므로 /datasets/ 통째가 아니라 단계별로 연다.
 # ----------------------------------------------------------------------------
 /datasets/*
-!/datasets/raw/
-/datasets/raw/*
-!/datasets/raw/kimm_260928_204214/
-/datasets/raw/kimm_260928_204214/*/*
-!/datasets/raw/kimm_260928_204214/*/000001__cap_260928_204214.*
+!/datasets/kimm/
+/datasets/kimm/*
+!/datasets/kimm/raw/
+/datasets/kimm/raw/*
+!/datasets/kimm/raw/kimm_260928_204214/
+/datasets/kimm/raw/kimm_260928_204214/*/*
+!/datasets/kimm/raw/kimm_260928_204214/*/000001__cap_260928_204214.*
 # 기구부 기준 레이어 — 앱 기준 오버레이(cutout · outline)와 라벨러 기준 와이어(tube · wire).
 # 원본 reference.png 와 미리보기는 빼 둔다 (make_reference_cutout.py 로 다시 만들 때만 필요).
-!/datasets/reference/
-/datasets/reference/*
-!/datasets/reference/reference_cutout.png
-!/datasets/reference/reference_outline.png
-!/datasets/reference/reference_tube.png
-!/datasets/reference/reference_wire.png
+!/datasets/kimm/reference/
+/datasets/kimm/reference/*
+!/datasets/kimm/reference/reference_cutout.png
+!/datasets/kimm/reference/reference_outline.png
+!/datasets/kimm/reference/reference_tube.png
+!/datasets/kimm/reference/reference_wire.png
+# BestFA raw/processed는 추적하지 않는다. 기준 이미지는 준비 후 네 레이어만 추가 가능.
+!/datasets/bestfa/
+/datasets/bestfa/*
+!/datasets/bestfa/reference/
+/datasets/bestfa/reference/*
+!/datasets/bestfa/reference/reference_cutout.png
+!/datasets/bestfa/reference/reference_outline.png
+!/datasets/bestfa/reference/reference_tube.png
+!/datasets/bestfa/reference/reference_wire.png
 
 # ----------------------------------------------------------------------------
 # training/ — 코드·설정만 추적, 산출물·환경은 제외

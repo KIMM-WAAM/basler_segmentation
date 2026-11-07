@@ -1,0 +1,8 @@
+# BestFA 전용 test 평가
+base: eval.final.yaml
+dataset: bestfa
+weights: runs/bestfa/segment/bestfa-yolo26s-seg-finetune/weights/best.pt
+data: ../datasets/bestfa/processed/seg/bestfa/data.yaml
+split: test
+visualize:
+  out: eval/bestfa

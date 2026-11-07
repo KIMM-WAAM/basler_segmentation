@@ -1,3 +1,4 @@
+dataset: kimm
 # yolo26s-seg 파인튜닝 — 배포용 (실시간 추론). 라벨된 데이터를 전부(train+val+test) 학습.
 #   python train.py --config train.seg_all.yaml
 # 성능 측정은 train.single.yaml(같은 증강·같은 데이터, val/test 를 뗀 버전)로 하고, 이건 그
@@ -8,10 +9,10 @@ base: base/train.yaml
 
 train:
   model: yolo26s-seg.pt
-  data: ../datasets/processed_seg/kimm/data.all.yaml   # preprocess.py 가 쓰는 전체 데이터 버전
+  data: ../datasets/kimm/processed/seg/kimm/data.all.yaml   # preprocess.py 가 쓰는 전체 데이터 버전
   epochs: 15                # ← train.single 의 best epoch 로 바꿀 것 (끝나면 채움)
   patience: 0                # 0 = EarlyStopping 끔 (val 이 train 과 겹쳐 의미 없음)
-  project: runs/segment
-  name: yolo26s-seg-all      # runs/segment/yolo26s-seg-all/<YYMMDD_HHMMSS>/
+  project: runs/kimm/segment
+  name: yolo26s-seg-all      # runs/kimm/segment/yolo26s-seg-all/<YYMMDD_HHMMSS>/
 
 # 앱 배포: archive.py 로 weights/ 에 보관 → weights/deploy.yaml 의 yolo26s-seg.onnx 줄에서 고름.

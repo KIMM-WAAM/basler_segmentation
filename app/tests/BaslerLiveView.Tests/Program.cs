@@ -22,6 +22,7 @@ internal static class Program
         try
         {
             CheckConfig();
+            CheckDatasetProfiles();
             CheckGeometry();
             CheckCamera();
             Console.WriteLine($"PASS: {_passed} ROI regression checks");
@@ -73,6 +74,26 @@ internal static class Program
         var full = new CameraRoi(0, 0, 1920, 2080, 1920, 2080);
         Assert(full.InferenceOrigin(0, 0, false) == null, "full sensor has no crop origin");
         Assert(full.InferenceOrigin(25, 30, true) == (25, 30), "software crop coordinates remain unchanged");
+    }
+
+    private static void CheckDatasetProfiles()
+    {
+        var kimm = CameraConfig.Load(App.ProfilePath("kimm"));
+        var bestfa = CameraConfig.Load(App.ProfilePath("bestfa"));
+        Assert(kimm.RecordDir == "datasets/kimm/raw", "KIMM recording root is isolated");
+        Assert(bestfa.RecordDir == "datasets/bestfa/raw", "BestFA recording root is isolated");
+        Assert(bestfa.RecordSessionPrefix == "bestfa", "BestFA uses its own session prefix");
+        Assert(bestfa.OverlayPath.StartsWith("datasets/bestfa/reference/"), "BestFA uses its own reference");
+        Assert(!bestfa.CropEnabled, "BestFA does not inherit KIMM crop geometry");
+        Assert(bestfa.MaxDetections == 2, "BestFA inference retains both wires");
+        Assert(bestfa.Model != kimm.Model, "BestFA does not silently use a KIMM model");
+        string directory = Path.Combine(AppContext.BaseDirectory, "recordings", Guid.NewGuid().ToString("N"));
+        using var recorder = new FrameRecorder(directory, sessionPrefix: "bestfa");
+        recorder.Start();
+        Assert(new DirectoryInfo(recorder.SessionDirectory).Name == "Mono",
+            "raw recordings use the Mono directory");
+        Assert(new DirectoryInfo(recorder.SessionDirectory).Parent!.Name.StartsWith("bestfa_"),
+            "recording session name matches BestFA");
     }
 
     private static void CheckCamera()

@@ -13,7 +13,7 @@ namespace BaslerLiveView;
 public partial class MainWindow : Window
 {
     private readonly CameraService _camera = new();
-    private readonly CameraConfig _config = CameraConfig.Load();
+    private readonly CameraConfig _config = CameraConfig.Load(App.ConfigPath);
 
     // YOLO inference overlay — segmentation or OBB, per the model file (lazily created).
     private InferenceService? _infer;
@@ -65,12 +65,14 @@ public partial class MainWindow : Window
 
         _modelPath = Path.Combine(AppContext.BaseDirectory, "Models", _config.Model);
         _recorder = new FrameRecorder(
-            FrameRecorder.ResolveDirectory(_config.RecordDir), _config.RecordQueueCapacity)
+            FrameRecorder.ResolveDirectory(_config.RecordDir), _config.RecordQueueCapacity,
+            _config.RecordSessionPrefix)
         {
             SaveFps = _config.RecordFps,
         };
         _recorder.ErrorOccurred += ex =>
             Dispatcher.BeginInvoke(() => StatusText.Text = "Recording error: " + ex.Message);
+        Title += " — " + _config.RecordSessionPrefix;
 
         // Seed the crop controls from config; the handler pushes them onto _cropper.
         CropCheck.IsChecked = _config.CropEnabled;
@@ -202,7 +204,7 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Load the reference cutout (the fixed rig — metal tube + wire — cut out of
-    /// datasets/reference/reference.png by training/tools/make_reference_cutout.py) and show it over the
+    /// datasets/kimm/reference/reference.png by training/tools/make_reference_cutout.py) and show it over the
     /// live view. Eye-in-hand camera → the rig occupies the same pixels in every
     /// frame, so a static overlay lines up; only the wire's length differs from the
     /// reference shot. A missing file just leaves the checkbox disabled.
@@ -407,7 +409,7 @@ public partial class MainWindow : Window
             // Inference runs on the crop only — the same region the training
             // images will be cut down to, so the model sees at inference exactly the
             // framing it was trained on. Use the toolbar sliders to find it, then put
-            // the same numbers into training/configs/preprocess.yaml: identical 0–100% convention.
+            // the same numbers into training/configs/preprocess.kimm.yaml: identical 0–100% convention.
             var cropped = _cropper.Crop(width, height, bgra, out int cw, out int ch, out int cx, out int cy);
 
             // Submit() copies the pixels out of the reused buffer immediately, so we

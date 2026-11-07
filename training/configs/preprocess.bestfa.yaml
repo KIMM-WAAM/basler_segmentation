@@ -1,0 +1,40 @@
+# BestFA 전용. 원본/라벨/기준 이미지/산출물은 KIMM과 분리한다.
+# uv run preprocess.py --dataset bestfa [--task obb]
+dataset: bestfa
+wire_count: 2
+reference:
+  directory: ../datasets/bestfa/reference
+  opacity: 0.35
+  outline_opacity: 0.9
+  wire_mask: red
+  white_background: true
+names: {0: wire}
+seed: 0
+task: seg
+out: ../datasets/bestfa/processed/seg
+preview:
+  enabled: true
+  count: 12
+sources:
+  - name: bestfa
+    path: ../datasets/bestfa/raw/bestfa_*
+    labels: labels_seg
+    names: {0: wire}
+    class_map: {wire: wire}
+    type: seg
+    group_by: session
+    val_ratio: 0.2
+    test_ratio: 0.1
+    oversample: 1
+    # 촬영 구도가 다르므로 KIMM 크롭을 복사하지 않는다.
+    # 라벨러에서 BestFA 화면에 맞춘 후 저장. 초기에는 전체 프레임.
+    crop:
+      enabled: false
+      width: 0
+      height: 0
+      center_x: 50
+      center_y: 50
+      min_area: 0.10
+      auto_crop:
+        enabled: false
+    resize: null

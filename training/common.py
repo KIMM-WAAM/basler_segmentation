@@ -1,13 +1,13 @@
 """
 파이프라인 공통 기반 — 각 단계가 공유하는 config 로드 · 경로 해석 · 로그.
 
-설정 yaml 은 모두 configs/ 아래에 있고, 모든 스크립트의 인자는 --config 하나입니다.
+설정 yaml 은 모두 configs/ 아래에 있고 학습·평가는 --config 로 선택합니다.
 각 스크립트는 자기 패턴(config_glob)으로 configs/ 를 찾아서:
   · 후보가 하나뿐이면 --config 없이 그 파일을 자동으로 읽습니다 (고를 게 없어 모호하지 않음).
   · 후보가 여럿이면 --config 를 **반드시 명시**해야 합니다 — 기본값으로 조용히
     넘어가면 의도한 것과 다른 데이터/설정으로 학습해도 알 수 없기 때문입니다.
 
-    preprocess.py                                configs/preprocess.yaml 자동 (후보 1개)
+    preprocess.py --dataset kimm                 configs/preprocess.kimm.yaml (환경 기본 kimm)
     train.py --config train.single.yaml          학습 + ONNX export
     eval.py --config eval.single.yaml            체크포인트 평가
 
@@ -34,6 +34,14 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(errors="replace")
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+
+
+def raw_image_dir(session: Path) -> Path:
+    """원본은 Mono/. 이전 images/ 세션도 읽되 둘 다 있으면 모호하므로 중단."""
+    mono, legacy = session / "Mono", session / "images"
+    if mono.is_dir() and legacy.is_dir():
+        raise ValueError(f"Mono 와 images 가 함께 있습니다. 원본 폴더를 하나로 정리하세요: {session}")
+    return legacy if legacy.is_dir() else mono
 
 # 파일명 앞 인덱스 접두어(000000__) 규약 — 앱 REC(FrameRecorder)가 붙이고,
 # preprocess.split_group 이 Roboflow 증강 사본(.rf.)에서 벗겨 그룹핑합니다.

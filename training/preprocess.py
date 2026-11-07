@@ -2,18 +2,18 @@
 원본 데이터를 학습용 YOLO seg/obb 데이터셋으로 전처리(크롭 · 리사이즈 · 클래스 통일 · 분할).
 
 폴더 규약:
-- 원천은 datasets/raw/<이름>/ (kimm = 앱 REC 녹화 세션들, 글롭 raw/kimm_*).
+- 원천은 datasets/<환경>/raw/<세션>/ (환경 = kimm / bestfa).
 - 산출물은 소스별로 out/<이름>/images|labels/{train,val,test} 에 씁니다.
 - out/data.yaml 하나가 디스크에 있는 소스 산출물 전체를 묶어 train.py 가 읽습니다
   (Ultralytics 는 각 split 에 폴더 목록을 지원). test 는 있을 때만 키를 넣습니다.
 
 설계 원칙:
-- 전처리에는 스테이지가 없습니다 — configs/preprocess.yaml 하나가 소스 구성·크롭·비율
+- 전처리에는 스테이지가 없습니다 — configs/preprocess.<환경>.yaml 이 소스 구성·크롭·비율
   등 전부를 소유하고, 소스마다 raw 를 out/<이름>/ 으로 한 번만 굽습니다
-  (out = processed_seg, OBB 는 --task obb --out ../datasets/processed_obb).
+  (out = datasets/<환경>/processed/seg, OBB 는 --task obb 로 processed/obb 에 저장).
   스테이지(공개 warm-up → in-domain 적응)는 train/eval config 가 어느 data.yaml 을
   읽을지로 정합니다: 소스별 processed/<이름>/data.yaml + 통합 processed/data.yaml.
-  config 후보가 하나뿐이라 --config 없이 자동으로 읽힙니다.
+  --dataset 으로 환경을 선택합니다 (생략 시 kimm). --config 로 직접 지정해도 됩니다.
 - 분할(train/val/test)은 소스 내부에서, oversample 전에 그룹(원본) 단위로 나눕니다.
   Roboflow 증강 사본(..._jpg.rf.<hash>)은 원본 단위로 묶여 같은 split 에만 들어갑니다
   (근중복이 train/val 에 갈라 들어가는 누수 방지). 앱 캡처(kimm)는 group_by: session 으로
@@ -44,14 +44,15 @@ train.*.yaml 의 증강 하이퍼파라미터로 조절하고, 결과 확인은
 
 각 소스 폴더엔 data.yaml (names + train/val 경로) 이 있어야 함.
   · Roboflow export 는 기본 포함.
-  · 로컬(kimm)은 최소 형식으로 하나 작성:  names: {0: wire}\n train: images
+  · 로컬(kimm)은 최소 형식으로 하나 작성:  names: {0: wire}\n train: Mono
     (labeller/server.py 가 띄울 때 자동으로 만들어 줍니다.)
   · 소스 path 가 글롭(`raw/kimm_*` — 앱 REC 세션 폴더들)이면 폴더 전부를 한 소스로
     묶습니다. 폴더마다 data.yaml 을 두기 번거로우면 그 소스에 `names:` 를 적으면
-    data.yaml 없는 폴더는 그것(train: images)으로 읽습니다.
+    data.yaml 없는 폴더는 그것(train: Mono)으로 읽습니다.
 
 사용법:
-    python preprocess.py        # configs/preprocess.yaml 자동 (후보 1개)
+    python preprocess.py --dataset kimm
+    python preprocess.py --dataset bestfa --task obb
 """
 from __future__ import annotations
 
@@ -63,7 +64,7 @@ from pathlib import Path
 
 import yaml
 
-from common import IMG_EXTS, INDEX_RE, Stage, normalize_names
+from common import IMG_EXTS, INDEX_RE, Stage, normalize_names, raw_image_dir
 
 # ── 크롭 기하 (순수 함수 — tests/ 가 직접 검증) ────────────────────────────
 
@@ -380,23 +381,32 @@ class Preprocessor(Stage):
     """
     소스들을 소스별 산출물 + data.yaml 의 학습용 데이터셋으로 만드는 단계.
 
-    config 는 configs/preprocess.yaml 하나뿐입니다 (후보 1개 → 인자 없이 자동).
+    config 는 configs/preprocess.<환경>.yaml 입니다 (--dataset 생략 시 kimm).
     전처리에는 스테이지가 없습니다 — 소스마다 raw 를 out/<이름>/ 으로 한 번
     굽고, 무엇으로 학습할지는 train/eval config 가 어느 data.yaml 을 읽을지로 정합니다
     (소스별 data.yaml · data.all.yaml + 전체 통합 data.yaml 을 모두 씁니다).
     """
 
-    config_glob = "preprocess.yaml"
+    config_glob = "preprocess.*.yaml"
     label = "preprocess"
 
-    def __init__(self, config_path=None, task: str | None = None, out: str | None = None) -> None:
+    def __init__(self, config_path=None, task: str | None = None, out: str | None = None,
+                 dataset: str | None = None) -> None:
+        from dataset_paths import dataset_root, preprocess_config
+
+        if config_path is None:
+            config_path = preprocess_config(dataset or "kimm")
         super().__init__(config_path)
+        if dataset and self.cfg.get("dataset") != dataset:
+            self.fail(f"--dataset {dataset} 와 config 의 dataset 이 다릅니다")
 
         # task/out 은 실행 인자로 덮어쓸 수 있음 — 같은 소스 정의로 seg 와 obb 산출물을
-        # 따로 굽기 위해 (예: --task obb --out ../datasets/processed_obb). 소스 정의를
+        # 따로 굽기 위해 (예: --task obb --out ../datasets/kimm/processed/obb). 소스 정의를
         # 복제한 두 번째 config 를 두지 않으려는 것.
         if task:
             self.cfg["task"] = task
+            if self.cfg.get("dataset") and not out:
+                self.cfg["out"] = str(dataset_root(self.cfg["dataset"]) / "processed" / task)
         if out:
             self.cfg["out"] = out
         for key in ("out", "sources"):
@@ -451,8 +461,8 @@ class Preprocessor(Stage):
         건드리지 않게 하려는 것입니다. 산출물 폴더 이름과 targets 는 그대로 소스
         `name` 이고, 글롭은 "그 소스의 원본이 어디 흩어져 있는지"만 바꿉니다.
 
-        글롭은 경로의 **마지막 한 칸**에만 씁니다 (`raw/kimm_*` ○, `raw/*/images` ✗).
-        `images/` 가 없는 항목은 세지 않습니다 — raw/ 에 같이 있는 zip 이나
+        글롭은 경로의 **마지막 한 칸**에만 씁니다 (`raw/kimm_*` ○, `raw/*/Mono` ✗).
+        `Mono/` (또는 이전 `images/`)가 없는 항목은 세지 않습니다 — raw/ 에 같이 있는 zip 이나
         아직 비어 있는 세션 폴더가 조용히 끼지 않게.
         """
         raw = str(src["path"])
@@ -463,10 +473,10 @@ class Preprocessor(Stage):
         if any(c in str(pat.parent) for c in "*?["):
             self.fail(f"{src['name']}: glob 은 경로 마지막 칸에만 쓸 수 있습니다: {raw}")
         dirs = sorted(p for p in pat.parent.glob(pat.name)
-                      if p.is_dir() and (p / "images").is_dir())
+                      if p.is_dir() and raw_image_dir(p).is_dir())
         if not dirs:
             self.fail(f"{src['name']}: {raw} 에 맞는 폴더가 없습니다 "
-                      f"(images/ 를 가진 폴더만 셉니다).")
+                      f"(Mono/ 또는 이전 images/ 를 가진 폴더만 셉니다).")
         self.log(f"{src['name']}: {raw} → 폴더 {len(dirs)}개 "
                  f"({dirs[0].name} … {dirs[-1].name})")
         return dirs
@@ -485,14 +495,14 @@ class Preprocessor(Stage):
                 dy = yaml.safe_load(f) or {}
             return dy, normalize_names(dy.get("names"))
         if src.get("names"):
-            return {"train": "images"}, normalize_names(src["names"])
+            return {"train": raw_image_dir(src_dir).name}, normalize_names(src["names"])
         raise FileNotFoundError(
             f"{src['name']}: data.yaml 이 없습니다 → {dy_path}\n"
             f"내 카메라 원본(kimm)이면 두 줄짜리로 만들어 두면 됩니다 "
             f"(라벨러가 띄울 때 자동으로 만듭니다):\n"
             f"    names: {{0: wire}}\n"
-            f"    train: images\n"
-            f"폴더가 여러 개(glob)라 폴더마다 두기 번거로우면, preprocess.yaml 의 "
+            f"    train: Mono\n"
+            f"폴더가 여러 개(glob)라 폴더마다 두기 번거로우면, {self.config_path.name} 의 "
             f"그 소스에 한 번만 적어도 됩니다:\n"
             f"    names: {{0: wire}}"
         )
@@ -520,7 +530,7 @@ class Preprocessor(Stage):
         """
         parts = list(images_dir.parts)
         for i in range(len(parts) - 1, -1, -1):
-            if parts[i] == "images":
+            if parts[i] in ("images", "Mono"):
                 parts[i] = labels
                 break
         return Path(*parts)
@@ -939,7 +949,7 @@ class Preprocessor(Stage):
             for sess in fixed[sp]:
                 if sess in groups:
                     chosen[sp].append(sess)
-                elif (self.resolve(src["path"]).parent / sess / "images").is_dir():
+                elif raw_image_dir(self.resolve(src["path"]).parent / sess).is_dir():
                     self.log(f"{name}: {sp}_sessions 의 {sess} 는 라벨된 이미지가 0장 — "
                              f"{sp} 에 들어갈 것이 없습니다")
                 else:
@@ -1071,6 +1081,8 @@ class Preprocessor(Stage):
 
 
 def main() -> None:
+    from dataset_paths import DATASETS
+
     ap = argparse.ArgumentParser(
         description="공개 + 로컬 데이터를 학습용 YOLO seg 데이터셋으로 전처리",
         epilog="configs/ 의 후보: " + Preprocessor.config_candidates(),
@@ -1078,15 +1090,16 @@ def main() -> None:
     )
     ap.add_argument(
         "--config", metavar="YAML",
-        help="설정 yaml (후보가 preprocess.yaml 하나라 생략 시 자동). "
+        help="설정 yaml (생략 시 --dataset 의 환경 설정). "
              "일부 소스만 다시 구우려면 yaml 의 targets 키를 쓰세요",
     )
+    ap.add_argument("--dataset", choices=DATASETS, help="촬영 환경 (config 생략 시 기본 kimm)")
     ap.add_argument("--task", choices=("seg", "obb"),
                     help="yaml 의 task 를 덮어씀 (같은 소스로 obb 산출물을 따로 구울 때)")
     ap.add_argument("--out", metavar="DIR",
-                    help="yaml 의 out 을 덮어씀 (training/ 기준). 예: ../datasets/processed_obb")
+                    help="yaml 의 out 을 덮어씀 (training/ 기준). 예: ../datasets/kimm/processed/obb")
     args = ap.parse_args()
-    Preprocessor(args.config, task=args.task, out=args.out).run()
+    Preprocessor(args.config, task=args.task, out=args.out, dataset=args.dataset).run()
 
 
 if __name__ == "__main__":

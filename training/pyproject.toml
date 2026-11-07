@@ -3,7 +3,7 @@
 #   cd training && uv sync                                # 라벨러/전처리용 최소 설치 (pyyaml, pillow)
 #   cd training && uv sync --extra train --extra export   # + torch(cu128) · ultralytics · ONNX
 #   cd training && uv run labeller/server.py
-#   (루트에서: uv run training/labeller/server.py — uv 가 스크립트 위치로 이 파일을 찾음)
+#   (루트에서도 같은 명령: uv run labeller/server.py — 실행기가 training 환경을 사용)
 
 [project]
 name = "basler-training"

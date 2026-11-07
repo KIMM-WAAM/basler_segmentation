@@ -1,4 +1,4 @@
-r"""datasets/reference/reference.png 에서 기구부(금속 튜브 + 와이어) 누끼를 딴다.
+r"""datasets/kimm/reference/reference.png 에서 기구부(금속 튜브 + 와이어) 누끼를 딴다.
 
 카메라가 eye-in-hand 로 기구에 붙어 있어서, 화면 상단의 금속 튜브는 항상
 같은 자리에 찍히고 와이어도 같은 자리에서 뻗어 나온다(길이만 변함).
@@ -19,16 +19,16 @@ BaslerLiveView 가 시작할 때 읽어 라이브 뷰 위에 반투명으로 얹
 
   # 자동 분리 대신, 그림판 등으로 직접 만든 RGBA 레이어(투명 배경 + 기구부)를
   # 합쳐서 누끼·윤곽선을 만들 수도 있다. 크기는 풀 프레임(2448×2048)이어야 한다:
-  python training/tools/make_reference_cutout.py --layers datasets/reference/reference_tube.png datasets/reference/reference_wire.png
+  python training/tools/make_reference_cutout.py --layers datasets/kimm/reference/reference_tube.png datasets/kimm/reference/reference_wire.png
 
   # 튜브/와이어를 구분해서 주면 표시도 구분된다: 튜브는 초록 윤곽선,
   # 와이어는 빨간 OBB(회전 최소 외접 사각형). 누끼 채움은 둘을 합친 그대로:
-  python training/tools/make_reference_cutout.py --tube datasets/reference/reference_tube.png --wire datasets/reference/reference_wire.png
+  python training/tools/make_reference_cutout.py --tube datasets/kimm/reference/reference_tube.png --wire datasets/kimm/reference/reference_wire.png
 
 출력:
-  datasets/reference/reference_cutout.png          — RGBA 누끼(앱이 읽는 파일)
-  datasets/reference/reference_outline.png         — 누끼 윤곽만 초록 선으로 그린 RGBA(앱이 같이 얹음)
-  datasets/reference/reference_cutout_preview.png  — 확인용(마젠타 배경에 합성 + 초록 윤곽)
+  datasets/kimm/reference/reference_cutout.png          — RGBA 누끼(앱이 읽는 파일)
+  datasets/kimm/reference/reference_outline.png         — 누끼 윤곽만 초록 선으로 그린 RGBA(앱이 같이 얹음)
+  datasets/kimm/reference/reference_cutout_preview.png  — 확인용(마젠타 배경에 합성 + 초록 윤곽)
 """
 
 import argparse
@@ -136,8 +136,9 @@ def draw_dashed_poly(img: np.ndarray, pts: np.ndarray, color, thickness: int,
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--src", default=str(REPO / "datasets" / "reference" / "reference.png"))
-    ap.add_argument("--out", default=str(REPO / "datasets" / "reference" / "reference_cutout.png"))
+    ap.add_argument("--dataset", choices=("kimm", "bestfa"), default="kimm")
+    ap.add_argument("--src")
+    ap.add_argument("--out")
     ap.add_argument("--thresh", type=int, default=10,
                     help="배경 대비 이만큼 어두우면 기구부 후보 (기본 10; 와이어가 끊기면 낮추기)")
     ap.add_argument("--dark", type=int, default=45,
@@ -157,6 +158,9 @@ def main() -> None:
     ap.add_argument("--wire", metavar="PNG",
                     help="와이어 레이어(RGBA). 빨간 OBB(회전 최소 외접 사각형)로 표시")
     args = ap.parse_args()
+    reference = REPO / "datasets" / args.dataset / "reference"
+    args.src = args.src or str(reference / "reference.png")
+    args.out = args.out or str(reference / "reference_cutout.png")
 
     if (args.tube is None) != (args.wire is None):
         ap.error("--tube 와 --wire 는 함께 주어야 합니다")

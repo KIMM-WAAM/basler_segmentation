@@ -699,7 +699,7 @@ def test_session_split(root: Path) -> None:
 
 def test_labeller_sessions(root: Path) -> None:
     """
-    라벨러(labeller/server.py) — preprocess.yaml 의 글롭 소스를 같은 규약으로 풀어
+    라벨러(labeller/server.py) — preprocess.kimm.yaml 의 글롭 소스를 같은 규약으로 풀어
     세션 폴더 전부를 보여주고, 라벨은 이미지가 있던 세션 폴더에 쓰며, 일괄 복사는
     지금 이미지의 세션 안에서만. 실제 HTTP 핸들러로 확인한다.
     """
@@ -1061,33 +1061,33 @@ def test_trainer_run_dir(root: Path) -> None:
 
 
 def test_preprocess_config_auto() -> None:
-    """preprocess 는 config 후보가 preprocess.yaml 하나 → 인자 없이 자동, 오타는 오류."""
-    st = Preprocessor()   # 후보 1개 → 자동 선택 (실제 저장소 config 로드)
-    check("preprocess: 후보 1개면 자동 선택", st.config_path.name == "preprocess.yaml",
+    """preprocess 는 환경 생략 시 KIMM, config 오타는 오류."""
+    st = Preprocessor()
+    check("preprocess: 기본 환경은 KIMM", st.config_path.name == "preprocess.kimm.yaml",
           str(st.config_path))
     expect_raises("preprocess: 없는 config 는 SystemExit + 후보", SystemExit,
                   lambda: Preprocessor("preprocess.stage9.yaml"), "후보")
     check("preprocess: config 후보 목록",
-          "preprocess.yaml" in Preprocessor.config_candidates(),
+          "preprocess.kimm.yaml" in Preprocessor.config_candidates(),
           Preprocessor.config_candidates())
 
 
 def test_real_pipeline_config() -> None:
-    """저장소의 configs/preprocess.yaml 이 규약을 지키는지 (config 린트)."""
-    st = Preprocessor("preprocess.yaml")
+    """저장소의 configs/preprocess.kimm.yaml 이 규약을 지키는지 (config 린트)."""
+    st = Preprocessor("preprocess.kimm.yaml")
     srcs = st.all_sources()
-    check("preprocess.yaml: names/sources/out",
+    check("preprocess.kimm.yaml: names/sources/out",
           bool(st.cfg.get("names")) and bool(srcs) and bool(st.cfg.get("out")))
-    check("preprocess.yaml: task 유효", st.task in ("seg", "obb"), st.task)
+    check("preprocess.kimm.yaml: task 유효", st.task in ("seg", "obb"), st.task)
     # 소스별 data.yaml 이 그 소스로 학습할 때의 검증셋이 되므로,
     # 모든 소스가 val 을 가져야 한다 (없으면 그 소스로 학습 시 빈 val 로 죽음)
     no_val = [s["name"] for s in srcs
               if not (float(s.get("val_ratio", 0)) > 0 or s.get("val_sessions"))]
-    check("preprocess.yaml: 모든 소스 val_ratio > 0 (또는 val_sessions)", not no_val, str(no_val))
+    check("preprocess.kimm.yaml: 모든 소스 val_ratio > 0 (또는 val_sessions)", not no_val, str(no_val))
     # 원본 라벨 형식은 소스마다 사용자가 명시 — task: obb 로 구울 때 변환 여부가 갈립니다.
     bad_type = [f"{s['name']}={s.get('type')}" for s in srcs
                 if s.get("type") not in ("seg", "obb")]
-    check("preprocess.yaml: 모든 소스 type 이 seg/obb", not bad_type, str(bad_type))
+    check("preprocess.kimm.yaml: 모든 소스 type 이 seg/obb", not bad_type, str(bad_type))
 
 
 def test_real_eval_configs() -> None:

@@ -28,6 +28,7 @@ from pathlib import Path
 import yaml
 
 from common import HERE, IMG_EXTS, Stage, latest_run, load_yaml, run_stamp
+from dataset_paths import dataset_root
 
 
 class Trainer(Stage):
@@ -52,9 +53,9 @@ class Trainer(Stage):
         데이터셋 정의를 절대경로로 (Ultralytics 의 상대경로 해석 이슈 회피).
 
         두 가지로 적을 수 있습니다:
-            data: ../datasets/processed_seg/kimm/data.yaml   경로 그대로 (한 소스)
+            data: ../datasets/kimm/processed/seg/kimm/data.yaml   경로 그대로 (한 소스)
             data: kimm, other                                 소스 **이름** 목록 → 그 자리에서 통합
-        이름으로 적으면 datasets/processed_seg/<이름>/ (OBB 모델이면 processed_obb/<이름>/)
+        이름으로 적으면 datasets/kimm/processed/seg/<이름>/ (OBB 모델이면 processed_obb/<이름>/)
         규약으로 코드가 경로를 만듭니다.
         """
         raw = self.cfg.get("train", {}).get("data")
@@ -72,7 +73,7 @@ class Trainer(Stage):
             raise FileNotFoundError(
                 f"데이터셋 정의가 없습니다: {path}\n"
                 f"먼저 python preprocess.py 로 데이터셋을 만드세요 "
-                f"(OBB 는 --task obb --out ../datasets/processed_obb)."
+                f"(OBB 는 --task obb --out ../datasets/kimm/processed/obb)."
             )
         return path
 
@@ -85,8 +86,8 @@ class Trainer(Stage):
         """
         # 전처리 산출물은 task 별로 따로 구워진다 — OBB 모델이면 processed_obb, 아니면 processed_seg
         model = str((self.cfg.get("train") or {}).get("model", ""))
-        root = self.resolve("../datasets/processed_obb" if "obb" in model.lower()
-                            else "../datasets/processed_seg").resolve()
+        root = (dataset_root(self.cfg.get("dataset", "kimm")) / "processed"
+                / ("obb" if "obb" in model.lower() else "seg")).resolve()
         missing = [n for n in names if not (root / n / "data.yaml").exists()]
         if missing:
             have = sorted(d.name for d in root.iterdir() if d.is_dir()) if root.is_dir() else []

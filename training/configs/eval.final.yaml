@@ -1,13 +1,14 @@
+dataset: kimm
 # 최종 무편향 평가 — in-domain test, 측정용 모델(train.single.yaml)에 딱 한 번만.
 #   python eval.py --config eval.final.yaml
-# test 세션은 학습·best 선택·early stop 어디에도 쓰이지 않았다 (preprocess.yaml 의 test_sessions).
+# test 세션은 학습·best 선택·early stop 어디에도 쓰이지 않았다 (preprocess.kimm.yaml 의 test_sessions).
 # 이 결과를 보고 하이퍼파라미터를 다시 조정하면 그 순간 오염되어
 # 논문에 쓸 수 없습니다.
 
 # weights: 타임스탬프를 뺀 경로면 그 name 의 가장 최근 실행
-#   (runs/segment/<name>/<YYMMDD_HHMMSS>/weights/best.pt)을 씁니다. 고정하려면 타임스탬프까지 적으세요.
-weights: runs/segment/yolo26s-seg-finetune/weights/best.pt
-data: ../datasets/processed_seg/kimm/data.yaml
+#   (runs/kimm/segment/<name>/<YYMMDD_HHMMSS>/weights/best.pt)을 씁니다. 고정하려면 타임스탬프까지 적으세요.
+weights: runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt
+data: ../datasets/kimm/processed/seg/kimm/data.yaml
 split: test
 imgsz: 640
 device: "0"
@@ -23,4 +24,4 @@ visualize:
   conf: 0.25       # 이 점수 미만 예측은 그리지 않음
   baseline: true   # 박스 아래 두 꼭짓점의 y 평균 높이에 가로 점선 + y 픽셀값 표기
                    # (왼쪽 값 = GT, 오른쪽 값 = 추론. y 는 processed 이미지 기준)
-  out: eval        # training/ 기준
+  out: eval/kimm        # training/ 기준

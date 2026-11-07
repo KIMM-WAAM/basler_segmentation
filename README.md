@@ -14,18 +14,30 @@ basler_segmentation/
 
 ## datasets/
 
-데이터는 용량 때문에 git 에 넣지 않는다 (`.gitignore`). 예외로 샘플 1장
-(`raw/kimm_260928_204214/` 의 `000001__…` 이미지 + `labels/` · `labels_seg/`)와 기준 레이어 4개
-(`reference/reference_{cutout,outline,tube,wire}.png` — 앱 기준 오버레이 · 라벨러 기준 와이어)만 들어 있어,
-새로 clone 한 곳에서도 앱·라벨러·전처리가 바로 돈다 — 실제 데이터는 원본 PC 의 `datasets/` 를 통째로
-복사해 온다. 폴더 규약:
+KIMM과 BestFA는 촬영 구도·기구부가 달라 원본, 기준 이미지, 크롭 설정과 전처리 결과를 분리한다.
+데이터는 git 밖에 두며, KIMM 샘플 1장과 환경별 기준 레이어는 예외로 추적한다.
+샘플로 라벨러를 확인할 수 있고, 학습·검증 분할에는 실제 라벨된 세션들이 필요하다.
+
+```text
+datasets/
+├─ kimm/
+│  ├─ raw/kimm_<날짜>/        Mono/ · labels/ · labels_seg/ · data.yaml
+│  ├─ reference/             KIMM 기구부·와이어 기준 이미지
+│  └─ processed/{seg,obb}/   크롭·리사이즈·분할 후 학습 데이터
+└─ bestfa/
+   ├─ raw/bestfa_<날짜>/      Mono/ · labels/ · labels_seg/ · data.yaml
+   ├─ reference/             BestFA 전용 기준 이미지
+   └─ processed/{seg,obb}/   BestFA 전처리 결과
+```
+
+아래 경로는 `datasets/<환경>/` 기준이다.
 
 | 경로 | 내용 | 만드는 쪽 |
 |---|---|---|
-| `raw/kimm_YYMMDD_HHMMSS[_메모]/images/` | 녹화 세션 원본 (센서 전체 또는 하드웨어 ROI PNG) | 앱 REC |
-| `raw/kimm_*/labels/` · `labels_seg/` | 손으로 잡은 OBB · 와이어 seg 폴리곤 | 라벨러 |
+| `raw/<환경>_YYMMDD_HHMMSS[_메모]/Mono/` | 녹화 세션 원본 | 앱 REC · BestFA 가져오기 |
+| `raw/<세션>/labels/` · `labels_seg/` | 원본 좌표의 OBB · 와이어 seg 폴리곤 | 라벨러 |
 | `raw/_removed_black/` · `_removed_manual/` | 빼 둔 프레임 (되돌리기용) | 정리 작업 · 라벨러 삭제 |
-| `processed_seg/` · `processed_obb/` | 학습용 산출물 (크롭·분할) | `training/preprocess.py` |
+| `processed/seg/` · `processed/obb/` | 변환된 이미지와 라벨, train/val/test 분할 | `training/preprocess.py` |
 | `reference/` | 기구부(튜브+와이어) 기준 이미지·누끼·윤곽선 | `training/tools/make_reference_cutout.py` |
 
 ## training/
@@ -34,13 +46,21 @@ basler_segmentation/
 cd training
 uv sync --extra train --extra export      # 첫 설치 (torch cu128 · ultralytics · ONNX · pytest · ruff)
 uv run labeller/server.py                 # 라벨러 → http://localhost:8765
-uv run preprocess.py                      # raw → processed_seg
+uv run preprocess.py --dataset kimm        # raw → kimm/processed/seg
 uv run train.py --config train.single.yaml
 uv run pytest                             # 파이프라인 테스트 (GPU·데이터 불필요)
 ```
 
+라벨러는 `uv run labeller/server.py`로 실행하고 화면 상단 프리셋에서 **KIMM / BestFA**를 고른다.
+BestFA 라벨링 후에는 `uv run preprocess.py --dataset bestfa`,
+`uv run train.py --config train.bestfa.single.yaml` 순서로 실행한다.
+외부 `<세션>/Mono` 가져오기와 환경별 명령은 [training/README.md](training/README.md)에 있다.
+앱은 `BaslerLiveView.exe --dataset bestfa`로 BestFA 설정을 읽는다 (기본 KIMM).
+
 자세한 건 [training/README.md](training/README.md). VS Code 에서는 `Ctrl+Shift+P → Tasks: Run Task` 의
-`training: train` / `training: inference — …` / `training: tensorboard` 로 돌릴 수 있다.
+`run labeller` / `train` / `inference — …` / `tensorboard`로 돌릴 수 있다.
+라벨러는 저장소 루트에서도 같은 `uv run labeller/server.py` 명령을 지원한다.
+BestFA는 빨간 기준 영역 두 개를 와이어 1·2로 읽어 각각 편집하고 함께 저장한다.
 
 ## app/
 
