@@ -4,22 +4,99 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "run labeller",
-      "detail": "라벨러 실행 → http://127.0.0.1:8765 (화면에서 KIMM / BestFA 선택)",
+      "label": "2. run labeller",
+      "detail": "http://127.0.0.1:8765",
       "type": "process",
       "command": "uv",
-      "args": ["run", "python", "-u", "labeller/server.py"],
-      "options": { "cwd": "${workspaceFolder}/training" },
-      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "args": [
+        "run",
+        "python",
+        "-u",
+        "labeller/server.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
       "problemMatcher": []
     },
     {
-      "label": "train",
+      "label": "1. waiting → raw",
+      "detail": "이름 정리 · data.yaml · session.yaml",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-u",
+        "tools/waiting_to_raw.py",
+        "--dataset",
+        "${input:dataset}",
+        "${input:waitingMode}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "1. waiting → raw (dryrun)",
+      "detail": "미리 정의된 이름 항목(_layer3 → layer: 3 …)과 환경별 waiting 목록만 보여 줌 — 아무것도 안 바꿈",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-u",
+        "tools/waiting_to_raw.py"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "3. preprocess",
+      "detail": "train·val·test 분할 (preprocess.yaml)",
+      "type": "process",
+      "command": "uv",
+      "args": ["run", "--inexact", "python", "-u", "preprocess.py", "--dataset", "${input:dataset}", "--task", "${input:preprocessTask}"],
+      "options": { "cwd": "${workspaceFolder}/training" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "4. train",
       "detail": "choose configs/train.*.yaml",
       "type": "process",
       "command": "uv",
-      "args": ["run", "--extra", "train", "--extra", "export", "train.py", "--config", "${input:trainConfig}"],
-      "options": { "cwd": "${workspaceFolder}/training" },
+      "args": [
+        "run",
+        "--extra",
+        "train",
+        "--extra",
+        "export",
+        "train.py",
+        "--config",
+        "${input:trainConfig}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
       "problemMatcher": []
     },
     {
@@ -27,10 +104,25 @@
       "detail": "크롭 → 예측 그림 (runs/infer/<시각>/<이름>_pred.jpg)",
       "type": "process",
       "command": "uv",
-      "args": ["run", "--extra", "train", "--extra", "export", "infer.py",
-               "--dataset", "${input:dataset}",
-               "--weights", "${input:weights}", "--source", "${input:image}", "--crop", "${input:crop}"],
-      "options": { "cwd": "${workspaceFolder}/training" },
+      "args": [
+        "run",
+        "--extra",
+        "train",
+        "--extra",
+        "export",
+        "infer.py",
+        "--dataset",
+        "${input:dataset}",
+        "--weights",
+        "${input:weights}",
+        "--source",
+        "${input:image}",
+        "--crop",
+        "${input:crop}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
       "problemMatcher": []
     },
     {
@@ -38,11 +130,27 @@
       "detail": "세션 폴더의 전 프레임 → 동영상 (runs/infer/<시각>/<세션>.mp4)",
       "type": "process",
       "command": "uv",
-      "args": ["run", "--extra", "train", "--extra", "export", "infer.py",
-               "--dataset", "${input:dataset}",
-               "--weights", "${input:weights}", "--source", "${input:session}",
-               "--crop", "${input:crop}", "--fps", "${input:fps}"],
-      "options": { "cwd": "${workspaceFolder}/training" },
+      "args": [
+        "run",
+        "--extra",
+        "train",
+        "--extra",
+        "export",
+        "infer.py",
+        "--dataset",
+        "${input:dataset}",
+        "--weights",
+        "${input:weights}",
+        "--source",
+        "${input:session}",
+        "--crop",
+        "${input:crop}",
+        "--fps",
+        "${input:fps}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
       "problemMatcher": []
     },
     {
@@ -50,17 +158,40 @@
       "detail": "runs/ 의 실행 하나를 저장소 루트 weights/<name>/<시각>/ 로 복사 (best·last·onnx·args·run_info, Git LFS)",
       "type": "process",
       "command": "uv",
-      "args": ["run", "--extra", "train", "--extra", "export", "archive.py", "${input:archiveRun}"],
-      "options": { "cwd": "${workspaceFolder}/training" },
+      "args": [
+        "run",
+        "--extra",
+        "train",
+        "--extra",
+        "export",
+        "archive.py",
+        "${input:archiveRun}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
       "problemMatcher": []
     },
     {
-      "label": "tensorboard",
+      "label": "5. tensorboard",
       "detail": "http://localhost:6006 — runs/ 아래 모든 학습 (멈출 땐 터미널 휴지통)",
       "type": "process",
       "command": "uv",
-      "args": ["run", "--extra", "train", "tensorboard", "--logdir", "runs", "--host", "127.0.0.1", "--port", "6006"],
-      "options": { "cwd": "${workspaceFolder}/training" },
+      "args": [
+        "run",
+        "--extra",
+        "train",
+        "tensorboard",
+        "--logdir",
+        "runs",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "6006"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/training"
+      },
       "problemMatcher": []
     }
   ],
@@ -73,16 +204,34 @@
       "default": "kimm"
     },
     {
+      "id": "waitingMode",
+      "type": "pickString",
+      "description": "waiting → raw 진행 방식",
+      "options": [
+        { "label": "세션마다 물어보기 (y / n / e=메모 고치기 / a=나머지 전부 / q)", "value": "--ask" },
+        { "label": "계획만 보기 (아무것도 안 옮김)", "value": "--dry-run" },
+        { "label": "묻지 않고 전부 옮기기", "value": "--yes" }
+      ],
+      "default": "--ask"
+    },
+    {
+      "id": "preprocessTask",
+      "type": "pickString",
+      "description": "전처리 라벨 형식",
+      "options": ["seg", "obb"],
+      "default": "seg"
+    },
+    {
       "id": "trainConfig",
       "type": "pickString",
       "description": "학습 config",
       "options": [
-        { "label": "KIMM — seg, val/test 분리 (측정용)", "value": "train.single.yaml" },
-        { "label": "train.seg_all.yaml — seg, 전체 데이터 (배포용)", "value": "train.seg_all.yaml" },
-        { "label": "train.obb_all.yaml — obb, 전체 데이터 (배포용, preprocess --task obb 선행)", "value": "train.obb_all.yaml" },
-        { "label": "BestFA — seg, val/test 분리 (측정용)", "value": "train.bestfa.single.yaml" },
-        { "label": "BestFA — seg, 전체 데이터", "value": "train.bestfa.seg_all.yaml" },
-        { "label": "BestFA — obb, 전체 데이터", "value": "train.bestfa.obb_all.yaml" }
+        { "label": "KIMM — seg, val/test 분리", "value": "train.single.yaml" },
+        { "label": "BestFA — seg, train/val 분리", "value": "train.bestfa.single.yaml" },
+        { "label": "KIMM — seg, 전체 데이터 (배포용)", "value": "train.seg_all.yaml" },
+        { "label": "KIMM — obb, 전체 데이터 (배포용)", "value": "train.obb_all.yaml" },
+        { "label": "BestFA — seg, 전체 데이터 (배포용)", "value": "train.bestfa.seg_all.yaml" },
+        { "label": "BestFA — obb, 전체 데이터 (배포용)", "value": "train.bestfa.obb_all.yaml" }
       ],
       "default": "train.single.yaml"
     },

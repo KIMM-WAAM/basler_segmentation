@@ -1,8 +1,8 @@
-# BestFA 전용 val 평가
-base: eval.single.yaml
+# 평가 설정. val은 모델 선택, test는 최종 확인에 사용.
+base: base/eval.yaml
 dataset: bestfa
 weights: runs/bestfa/segment/bestfa-yolo26s-seg-finetune/weights/best.pt
-data: ../datasets/bestfa/processed/seg/bestfa/data.yaml
+data: ../datasets/bestfa/processed_seg/data.yaml
 split: val
 visualize:
   out: eval/bestfa

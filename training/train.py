@@ -5,7 +5,7 @@ yolo26s-seg / yolo26s-obb 파인튜닝 + ONNX export.
 
 파이프라인:  (라벨러) → preprocess.py → train.py → (eval.py · infer.py)
 
-**config 는 반드시 --config 로 명시합니다.** 후보가 여럿(single/seg_all/obb_all)이라
+**config 는 반드시 --config 로 명시합니다.** 후보가 여럿(KIMM/BestFA)이라
 기본값을 고르면 의도와 다른 설정으로 학습해도 알아채지 못하기 때문입니다. 생략하면
 바로 오류이며, 읽은 config 경로는 항상 로그 첫 줄에 찍힙니다.
 
@@ -16,19 +16,22 @@ config 의 stages 로 무엇을 돌릴지 고릅니다 (블록 자체가 필수 
 재학습 없이 export 만 다시 하려면 train: false, export: true 로 두면 됩니다.
 
 사용법 (training/ 에서, uv sync --extra train --extra export 후):
-    uv run train.py --config train.single.yaml     # 측정용 (val/test 분리, early stop)
-    uv run train.py --config train.seg_all.yaml    # 배포용 seg (전체 데이터)
-    uv run train.py --config train.obb_all.yaml    # 배포용 obb (전체 데이터)
+    uv run train.py --config train.single.yaml         # KIMM (val/test 분리)
+    uv run train.py --config train.bestfa.single.yaml  # BestFA (val/test 분리)
+    uv run train.py --config train.seg_all.yaml        # KIMM 배포용 (전체 데이터)
+    uv run train.py --config train.bestfa.seg_all.yaml # BestFA 배포용 (전체 데이터)
+
+실행마다 <실행 폴더>/run_info.yaml (코드 · 데이터 manifest · 환경)과 재현용 config.yaml 이
+남습니다 (provenance.py). 같은 학습을 다시 돌리려면:
+    uv run train.py --config runs/<환경>/<task>/<name>/<시각>/config.yaml
+— 데이터 지문이 그때와 다르면 시작 전에 중단하고, 커밋이 다르면 경고합니다.
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-import yaml
-
-from common import HERE, IMG_EXTS, Stage, latest_run, load_yaml, run_stamp
-from dataset_paths import dataset_root
+from common import HERE, Stage, latest_run, run_stamp
 
 
 class Trainer(Stage):
@@ -51,69 +54,21 @@ class Trainer(Stage):
     def data_path(self) -> Path:
         """
         데이터셋 정의를 절대경로로 (Ultralytics 의 상대경로 해석 이슈 회피).
-
-        두 가지로 적을 수 있습니다:
-            data: ../datasets/kimm/processed/seg/kimm/data.yaml   경로 그대로 (한 소스)
-            data: kimm, other                                 소스 **이름** 목록 → 그 자리에서 통합
-        이름으로 적으면 datasets/kimm/processed/seg/<이름>/ (OBB 모델이면 processed_obb/<이름>/)
-        규약으로 코드가 경로를 만듭니다.
+        preprocess.py 산출물의 data.yaml (분할 그대로) 또는 data.all.yaml (전체):
+            data: ../datasets/kimm/processed_seg/data.yaml
         """
         raw = self.cfg.get("train", {}).get("data")
         if not raw:
             self.fail("train.data 가 없습니다 — 어떤 데이터셋으로 학습할지 기본값으로 "
                       "추측하지 않습니다.")
-        # 경로 구분자나 .yaml 이 없으면 소스 이름 목록으로 본다 (yaml 은 쉼표 나열을
-        # 리스트가 아니라 문자열로 읽으므로 둘 다 받는다).
-        names = raw if isinstance(raw, list) else str(raw).split(",")
-        names = [str(n).strip() for n in names if str(n).strip()]
-        if names and not any(s in n for n in names for s in ("/", "\\", ".yaml")):
-            return self.merged_data_path(names)
         path = self.resolve(raw)
         if not path.exists():
             raise FileNotFoundError(
                 f"데이터셋 정의가 없습니다: {path}\n"
-                f"먼저 python preprocess.py 로 데이터셋을 만드세요 "
-                f"(OBB 는 --task obb --out ../datasets/kimm/processed/obb)."
+                f"먼저 python preprocess.py --dataset <환경> 으로 데이터셋을 만드세요 "
+                f"(OBB 는 --task obb → datasets/<환경>/processed_obb)."
             )
         return path
-
-    def merged_data_path(self, names: list) -> Path:
-        """
-        소스 이름 목록(`data: kimm, other`)을 묶은 data.yaml 을 쓰고 그 경로를 준다.
-
-        모양은 preprocess.py 의 통합본과 같습니다 — split 마다 폴더 목록을 주면
-        Ultralytics 가 알아서 합쳐 읽습니다. 소스 조합이 바뀌면 파일도 새로 써집니다.
-        """
-        # 전처리 산출물은 task 별로 따로 구워진다 — OBB 모델이면 processed_obb, 아니면 processed_seg
-        model = str((self.cfg.get("train") or {}).get("model", ""))
-        root = (dataset_root(self.cfg.get("dataset", "kimm")) / "processed"
-                / ("obb" if "obb" in model.lower() else "seg")).resolve()
-        missing = [n for n in names if not (root / n / "data.yaml").exists()]
-        if missing:
-            have = sorted(d.name for d in root.iterdir() if d.is_dir()) if root.is_dir() else []
-            self.fail(f"산출물이 없는 소스: {', '.join(missing)}\n"
-                      f"  {root} 의 소스: {', '.join(have) or '(없음)'}\n"
-                      f"  먼저 python preprocess.py 로 구우세요.")
-
-        def has_images(d: Path) -> bool:
-            return d.is_dir() and any(p.suffix.lower() in IMG_EXTS for p in d.iterdir())
-
-        merged = {"path": str(root)}
-        for split in ("train", "val", "test"):
-            dirs = [f"{n}/images/{split}" for n in names
-                    if has_images(root / n / "images" / split)]
-            if dirs:                       # 비었거나 없는 split 은 키 자체를 넣지 않는다
-                merged[split] = dirs
-        if "train" not in merged:
-            self.fail(f"train 이미지가 있는 소스가 없습니다: {', '.join(names)}")
-        # 클래스 정의는 preprocess 가 소스마다 같은 names 로 굽습니다 — 첫 소스 것을 씁니다.
-        merged["names"] = load_yaml(root / names[0] / "data.yaml")["names"]
-
-        out = root / f"data.{'+'.join(names)}.yaml"
-        with out.open("w", encoding="utf-8") as f:
-            yaml.safe_dump(merged, f, allow_unicode=True, sort_keys=False)
-        self.log(f"소스 {len(names)}개 통합 → {out}")
-        return out
 
     def start_weights(self) -> str:
         """
@@ -206,6 +161,28 @@ class Trainer(Stage):
 
         augment.albumentations_list(cfg)
 
+    def crop_trainer(self, task: str, cfg: dict):
+        """프로젝트 전용 옵션은 YOLO 인자와 분리하고 원본 무결성을 확인한다."""
+        options = self.cfg.get("source_crop") or {}
+        if not options.get("enabled"):
+            return None
+        from source_crop import read_index, validate_options
+
+        options = validate_options(options)
+        if cfg.get("translate", 0) != 0:
+            self.fail("source_crop 사용 시 train.translate: 0으로 중복 이동을 끄세요")
+        if cfg.get("resume"):
+            self.fail("source_crop은 resume 대신 train.model에 가중치를 지정해 새 실행으로 학습하세요")
+        if "," in str(cfg.get("device", "0")) or isinstance(cfg.get("device"), (list, tuple)):
+            self.fail("source_crop은 현재 단일 device 학습만 지원합니다")
+        root = self.data_path().parent
+        self.log("원본 크롭 증강: 세션 크기 유지, 저장 위치 기준 X/Y 이동 "
+                 f"{options['offset_x']} / {options['offset_y']}%p (0~100 제한); val은 고정 크롭")
+        read_index(root, verify_images=True)
+        from crop_dataset import trainer_factory
+
+        return trainer_factory(task, root, options)
+
     def preview_aug(self) -> Path:
         """
         증강 결과 미리보기.
@@ -236,7 +213,8 @@ class Trainer(Stage):
 
         from ultralytics import YOLO
 
-        results = YOLO(weights).train(**cfg)
+        model = YOLO(weights)
+        results = model.train(trainer=self.crop_trainer(model.task, cfg), **cfg)
         save_dir = Path(results.save_dir)
         batches = sorted(save_dir.glob("train_batch*.jpg"))
         self.log(f"증강 미리보기 {len(batches)}장 → {save_dir}")
@@ -290,28 +268,82 @@ class Trainer(Stage):
             "학습률": {"lr (pg 짝수 = 헤드 ×3)": ["Multiline", [r"^lr/pg\d+$"]]},
         })
 
-    def record_run(self, trainer, cfg: dict) -> None:
+    def record_run(self, trainer, cfg: dict, weights: str) -> None:
         """
-        학습 시작 시 실행 폴더에 run_info.yaml (커밋 · 커밋 안 된 수정 · config · 데이터 장수),
-        수정이 있으면 code.patch 도 (provenance.py). Ultralytics 가 실행 폴더를 정한 뒤라
-        콜백에서 한다 — 미리 만들면 Ultralytics 가 이름 뒤에 2 를 붙여 새 폴더를 만든다.
+        학습 시작 시 실행 폴더에 run_info.yaml (커밋 · 커밋 안 된 수정 · config · 데이터 manifest ·
+        시작 가중치 · 환경), 수정이 있으면 code.patch 도 (provenance.py). Ultralytics 가 실행 폴더를
+        정한 뒤라 콜백에서 한다 — 미리 만들면 Ultralytics 가 이름 뒤에 2 를 붙여 새 폴더를 만든다.
         """
         import provenance
 
+        self._run_info = None
         try:
             info = provenance.write_run_info(Path(trainer.save_dir), self.config_path, self.cfg,
-                                             Path(cfg["data"]))
+                                             Path(cfg["data"]), weights)
         except Exception as e:   # 기록 실패로 학습을 죽이지 않는다
             self.log(f"run_info 기록 실패 (학습은 계속): {e}")
             return
+        self._run_info = info
         git = info["git"]
         self.log(f"코드: {(git['commit'] or '?')[:7]} ({git['branch']})"
                  + (f" + 커밋 안 된 수정 {len(git['uncommitted'])}개 → code.patch" if git["dirty"] else ""))
+        for name, m in info["data"]["manifest"].items():
+            self.log(f"데이터 {name}: {m.get('hash') or m.get('note')}")
+
+    def record_config(self, trainer, weights: str) -> None:
+        """
+        재현용 config.yaml (provenance.write_run_config). AutoBatch(batch: -1)가 실제 batch 를 정한
+        뒤라 on_train_start 에서 쓴다 — 실제 값을 run_info 의 resolved 에도 남긴다.
+        """
+        import provenance
+
+        info = getattr(self, "_run_info", None)
+        if info is None:
+            return
+        try:
+            batch = int(getattr(trainer, "batch_size", 0) or 0) or None
+            start = info.get("start_weights") or {}
+            # 이름(yolo26s-seg.pt)은 Ultralytics 가 같은 파일을 받으므로 그대로, 경로는 실제로 쓴 파일로
+            pinned = start.get("file") if ("/" in weights or "\\" in weights) else weights
+            info["resolved"] = {"batch": batch, "deterministic": bool(getattr(trainer.args, "deterministic", True))}
+            provenance.write_info(trainer.save_dir, info)
+            p = provenance.write_run_config(trainer.save_dir, self.cfg, pinned, batch, info)
+            self.log(f"재현용 config → {p} (batch {batch})")
+        except Exception as e:
+            self.log(f"재현용 config 기록 실패 (학습은 계속): {e}")
+
+    def check_reproduce(self, data: Path) -> None:
+        """
+        재현용 config.yaml 로 다시 돌릴 때 — 데이터 지문이 그때와 다르면 중단 (다른 데이터로 학습하면
+        재현이 아니다), 커밋이 다르면 경고 (코드를 일부러 바꿔 다시 돌릴 수도 있으므로).
+        """
+        rep = self.cfg.get("reproduce")
+        if not rep:
+            return
+        import provenance
+
+        want = rep.get("data_hash") or {}
+        have = {k: (m or {}).get("hash") for k, (_, m) in provenance.read_manifests(data).items()}
+        bad = [f"  {k}: 기록 {v} / 지금 {have.get(k) or '(manifest 없음)'}"
+               for k, v in want.items() if have.get(k) != v]
+        if bad:
+            self.fail("재현 대상과 데이터가 다릅니다 — 같은 세션 · 라벨 · 전처리 설정으로 다시 구우세요\n"
+                      + "\n".join(bad)
+                      + f"\n  (그때의 파일 목록: {rep.get('run')}/data/*.manifest.files.tsv)")
+        git = provenance.git_state()
+        if rep.get("commit") and git["commit"] != rep["commit"]:
+            self.log(f"경고: 코드가 기록과 다릅니다 — 기록 {rep['commit'][:7]} / 지금 {(git['commit'] or '?')[:7]}. "
+                     f"그대로 재현하려면 git switch --detach {rep['commit'][:7]}"
+                     + (f" 후 git apply {rep.get('run')}/{rep['patch']}" if rep.get("patch") else ""))
+        elif git["dirty"]:
+            self.log("경고: 커밋 안 된 수정이 있습니다 — 기록과 코드가 다를 수 있습니다")
+        self.log(f"재현: 데이터 지문 일치 ({', '.join(want) or '없음'}) — 기록 {rep.get('run')}")
 
     def train(self) -> Path:
         """파인튜닝. best.pt 경로를 돌려준다."""
         weights = self.start_weights()      # 설정 검증을 무거운 import 앞에 둔다
         cfg = self.train_kwargs()
+        self.check_reproduce(Path(cfg["data"]))
         self.log(f"시작 가중치: {weights}")
         self.log(f"데이터셋: {cfg['data']}")
         self.log(f"결과 폴더: {Path(cfg['project']) / cfg['name']}")
@@ -329,7 +361,8 @@ class Trainer(Stage):
             settings.update(want)
 
         model = YOLO(weights)
-        model.add_callback("on_pretrain_routine_start", lambda tr: self.record_run(tr, cfg))
+        model.add_callback("on_pretrain_routine_start", lambda tr: self.record_run(tr, cfg, weights))
+        model.add_callback("on_train_start", lambda tr: self.record_config(tr, weights))
         model.add_callback("on_train_start", self.tensorboard_layout)
         if (self.cfg.get("overlay") or {}).get("enabled"):
             # 매 val 마다 원본 4장 + 증강 12장 추론 격자 → <실행 폴더>/overlays/, TensorBoard
@@ -338,7 +371,7 @@ class Trainer(Stage):
             model.add_callback("on_fit_epoch_end", epoch_overlay.callback(
                 blur=t.get("blur"), brightness=t.get("brightness")))
         # cfg 의 나머지 키는 모두 Ultralytics train() 인자와 1:1 대응 (증강 포함)
-        results = model.train(**cfg)
+        results = model.train(trainer=self.crop_trainer(model.task, cfg), **cfg)
 
         self._save_dir = Path(results.save_dir)
         best = self.best_weights()

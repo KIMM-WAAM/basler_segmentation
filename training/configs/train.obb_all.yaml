@@ -1,20 +1,12 @@
+# KIMM 배포용: train+val+test 전체 학습.
+# epochs는 기존 값. 실행 전 학습 길이를 결정할 것; val 점수는 독립 평가가 아님.
+base: base/kimm.yaml
 dataset: kimm
-# yolo26s-obb 파인튜닝 — 배포용 (실시간 추론). 라벨된 데이터를 전부(train+val+test) 학습.
-#   python preprocess.py --task obb --out ../datasets/kimm/processed/obb   # 먼저 한 번 (OBB 산출물)
-#   python train.py --config train.obb_all.yaml
-# OBB 라벨은 손으로 잡은 OBB(labels/)가 아니라 seg 폴리곤(labels_seg/)에 다시 맞춘 회전
-# 사각형 — 실제 와이어 끝까지만 덮는다. val 은 train 과 겹치므로 지표는 낙관적이고 early
-# stopping 이 과적합을 못 잡음 → epochs 를 train.single(seg, 진짜 val)의 best epoch 로 고정.
-# (같은 데이터·증강이라 대용으로 씀. OBB 전용 측정 실행은 없음.)
-# 앱은 모델 파일에서 seg/obb 를 알아서 고른다 — 쓰려면 config.xml <Model> 을 yolo26s-obb.onnx 로.
-# 앱 배포: archive.py 로 weights/ 에 보관 → weights/deploy.yaml 의 yolo26s-obb.onnx 줄에서 고름.
-base: base/train.yaml
 
 train:
   model: yolo26s-obb.pt
-  data: ../datasets/kimm/processed/obb/kimm/data.all.yaml
-  epochs: 15                # ← train.single 의 best epoch 로 바꿀 것 (끝나면 채움)
-  patience: 0                # 0 = EarlyStopping 끔 (val 이 train 과 겹쳐 의미 없음)
+  data: ../datasets/kimm/processed_obb/data.all.yaml
+  epochs: 15
+  patience: 0
   project: runs/kimm/obb
-  name: yolo26s-obb-all      # runs/kimm/obb/yolo26s-obb-all/<YYMMDD_HHMMSS>/
-
+  name: yolo26s-obb-all

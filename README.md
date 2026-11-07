@@ -21,40 +21,53 @@ KIMM과 BestFA는 촬영 구도·기구부가 달라 원본, 기준 이미지, �
 ```text
 datasets/
 ├─ kimm/
-│  ├─ raw/kimm_<날짜>/        Mono/ · labels/ · labels_seg/ · data.yaml
+│  ├─ raw/<YYMMDD_HHMMSS>/    Mono/ · labels/ · labels_seg/ · data.yaml · session.yaml
 │  ├─ reference/             KIMM 기구부·와이어 기준 이미지
-│  └─ processed/{seg,obb}/   크롭·리사이즈·분할 후 학습 데이터
+│  ├─ processed_seg/          크롭·리사이즈·분할 후 학습 데이터 — images/ · labels/ · preview/ · data.yaml · data.all.yaml · manifest
+│  └─ processed_obb/          같은 소스를 OBB 로 변환한 것 (구조 동일)
 └─ bestfa/
-   ├─ raw/bestfa_<날짜>/      Mono/ · labels/ · labels_seg/ · data.yaml
+   ├─ raw/<YYMMDD_HHMMSS>/    Mono/ · labels/ · labels_seg/ · data.yaml · session.yaml
    ├─ reference/             BestFA 전용 기준 이미지
-   └─ processed/{seg,obb}/   BestFA 전처리 결과
+   └─ processed_seg/ · processed_obb/   BestFA 전처리 결과 (구조 동일)
 ```
 
 아래 경로는 `datasets/<환경>/` 기준이다.
 
 | 경로 | 내용 | 만드는 쪽 |
 |---|---|---|
-| `raw/<환경>_YYMMDD_HHMMSS[_메모]/Mono/` | 녹화 세션 원본 | 앱 REC · BestFA 가져오기 |
+| `waiting/<YYMMDD_HHMMSS[_메모]>/` | 받아 온 세션을 넣어 두는 곳 — `waiting_to_raw.py` 가 raw 로 분류 | 사람 |
+| `raw/YYMMDD_HHMMSS/Mono/` | 녹화 세션 원본. 환경은 상위 폴더가 말하므로 이름에 접두어·메모를 붙이지 않는다 | 앱 REC · `waiting_to_raw.py` |
+| `raw/<세션>/session.yaml` | 세션 명세 — id · env · layer · scene(장면 메모) · tags · wire_count · notes (전부 선택) | 라벨러 · `waiting_to_raw.py` 가 틀 생성, 사람이 채움 |
 | `raw/<세션>/labels/` · `labels_seg/` | 원본 좌표의 OBB · 와이어 seg 폴리곤 | 라벨러 |
-| `raw/_removed_black/` · `_removed_manual/` | 빼 둔 프레임 (되돌리기용) | 정리 작업 · 라벨러 삭제 |
-| `processed/seg/` · `processed/obb/` | 변환된 이미지와 라벨, train/val/test 분할 | `training/preprocess.py` |
+| `raw/_removed_black/` · `_removed_manual/` | 빼 둔 프레임 (되돌리기용). 숫자로 시작하지 않는 폴더는 라벨러·전처리에서 빠진다 | 정리 작업 · 라벨러 삭제 |
+| `processed_seg/` · `processed_obb/` | 변환된 이미지와 라벨(`images/` · `labels/`), train/val/test 분할, `data.yaml`(분할) · `data.all.yaml`(전체) | `training/preprocess.py` |
+| `processed_<task>/manifest.yaml` | 어느 세션이 어느 split 에 몇 장, 세션별·전체 지문 (+ 파일별 `manifest.files.tsv`) | `training/preprocess.py` |
 | `reference/` | 기구부(튜브+와이어) 기준 이미지·누끼·윤곽선 | `training/tools/make_reference_cutout.py` |
+
+받아 온 세션은 `datasets/<환경>/waiting/` 에 넣고 training/ 에서 `uv run tools/waiting_to_raw.py`
+(사용법 · 대기 목록) → `--dataset bestfa` (세션마다 확인 후 raw 로). 폴더 이름의 `_layer3` 같은 미리 정의된
+항목은 session.yaml 의 그 필드로, 나머지 메모는 scene 으로 옮기고 data.yaml · session.yaml 을 만든다.
+예전 이름(`kimm_YYMMDD_HHMMSS[_메모]`)의 세션은 `uv run tools/rename_sessions.py --dataset kimm --apply`
+(training/ 에서)로 바꾼다 — 메모는 session.yaml 의 scene 으로 옮겨진다.
 
 ## training/
 
 ```powershell
 cd training
-uv sync --extra train --extra export      # 첫 설치 (torch cu128 · ultralytics · ONNX · pytest · ruff)
+uv sync --extra train --extra export      # 첫 설치 (torch cu128 · ultralytics · ONNX · ruff)
 uv run labeller/server.py                 # 라벨러 → http://localhost:8765
-uv run preprocess.py --dataset kimm        # raw → kimm/processed/seg
+uv run preprocess.py --dataset kimm        # raw → kimm/processed_seg (+ manifest)
 uv run train.py --config train.single.yaml
-uv run pytest                             # 파이프라인 테스트 (GPU·데이터 불필요)
 ```
+
+학습 실행마다 `run_info.yaml`(코드 커밋 · 데이터 manifest · 시작 가중치 · 환경)과 재현용 `config.yaml`이
+실행 폴더에 남고, `archive.py`가 `weights/`로 함께 보관한다. 같은 학습은
+`uv run train.py --config <실행 폴더>/config.yaml`로 다시 돌린다 (데이터 지문이 다르면 중단).
 
 라벨러는 `uv run labeller/server.py`로 실행하고 화면 상단 프리셋에서 **KIMM / BestFA**를 고른다.
 BestFA 라벨링 후에는 `uv run preprocess.py --dataset bestfa`,
 `uv run train.py --config train.bestfa.single.yaml` 순서로 실행한다.
-외부 `<세션>/Mono` 가져오기와 환경별 명령은 [training/README.md](training/README.md)에 있다.
+외부 세션 받기(`waiting/` → raw)와 환경별 명령은 [training/README.md](training/README.md)에 있다.
 앱은 `BaslerLiveView.exe --dataset bestfa`로 BestFA 설정을 읽는다 (기본 KIMM).
 
 자세한 건 [training/README.md](training/README.md). VS Code 에서는 `Ctrl+Shift+P → Tasks: Run Task` 의
@@ -88,4 +101,4 @@ dotnet build app/basler_segmentation.sln
 ## 저장소 규칙
 
 - 줄바꿈 `.gitattributes`, 들여쓰기·인코딩 `.editorconfig`, Python 린트 `training/pyproject.toml` (ruff).
-- CI(`.github/workflows/ci.yml`): push 마다 `training` ruff · pytest, `app` 빌드 · `dotnet format` 확인.
+- CI(`.github/workflows/ci.yml`): push 마다 `training` ruff, `app` 빌드 · `dotnet format` 확인.

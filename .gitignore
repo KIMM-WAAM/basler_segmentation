@@ -13,8 +13,8 @@
 
 # ----------------------------------------------------------------------------
 # datasets/ — 데이터는 git 밖 (용량 큼). 폴더 규약은 README.md 참고.
-#   <환경>/raw/<세션>/ (원본 + labels/ + labels_seg/),
-#   <환경>/processed/{seg,obb}/ (전처리), <환경>/reference/ (기구부 기준 이미지)
+#   <환경>/raw/<YYMMDD_HHMMSS>/ (원본 Mono/ + labels/ + labels_seg/ + data.yaml + session.yaml),
+#   <환경>/processed_seg/ · processed_obb/ (전처리 + manifest), <환경>/reference/ (기구부 기준 이미지)
 # 예외: 새로 clone 한 곳에서 라벨러·전처리가 바로 도는지 볼 샘플 1장 (세션 하나에 이미지 + 라벨).
 #   git 은 제외된 폴더 안을 들여다보지 않으므로 /datasets/ 통째가 아니라 단계별로 연다.
 # ----------------------------------------------------------------------------
@@ -23,9 +23,9 @@
 /datasets/kimm/*
 !/datasets/kimm/raw/
 /datasets/kimm/raw/*
-!/datasets/kimm/raw/kimm_260928_204214/
-/datasets/kimm/raw/kimm_260928_204214/*/*
-!/datasets/kimm/raw/kimm_260928_204214/*/000001__cap_260928_204214.*
+!/datasets/kimm/raw/260928_204214/
+/datasets/kimm/raw/260928_204214/*/*
+!/datasets/kimm/raw/260928_204214/*/000001__cap_260928_204214.*
 # 기구부 기준 레이어 — 앱 기준 오버레이(cutout · outline)와 라벨러 기준 와이어(tube · wire).
 # 원본 reference.png 와 미리보기는 빼 둔다 (make_reference_cutout.py 로 다시 만들 때만 필요).
 !/datasets/kimm/reference/

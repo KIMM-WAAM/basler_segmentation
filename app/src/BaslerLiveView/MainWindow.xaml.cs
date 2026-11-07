@@ -65,14 +65,13 @@ public partial class MainWindow : Window
 
         _modelPath = Path.Combine(AppContext.BaseDirectory, "Models", _config.Model);
         _recorder = new FrameRecorder(
-            FrameRecorder.ResolveDirectory(_config.RecordDir), _config.RecordQueueCapacity,
-            _config.RecordSessionPrefix)
+            FrameRecorder.ResolveDirectory(_config.RecordDir), _config.RecordQueueCapacity)
         {
             SaveFps = _config.RecordFps,
         };
         _recorder.ErrorOccurred += ex =>
             Dispatcher.BeginInvoke(() => StatusText.Text = "Recording error: " + ex.Message);
-        Title += " — " + _config.RecordSessionPrefix;
+        Title += " — " + _config.CaptureEnvironment;
 
         // Seed the crop controls from config; the handler pushes them onto _cropper.
         CropCheck.IsChecked = _config.CropEnabled;

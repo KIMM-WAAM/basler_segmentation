@@ -16,7 +16,7 @@
     <OutlinePath>datasets/bestfa/reference/reference_outline.png</OutlinePath><OutlineOpacity>0.9</OutlineOpacity>
   </ReferenceOverlay>
   <Recording>
-    <SessionPrefix>bestfa</SessionPrefix><Directory>datasets/bestfa/raw</Directory>
+    <Environment>bestfa</Environment><Directory>datasets/bestfa/raw</Directory>
     <Fps>3</Fps><QueueCapacity>120</QueueCapacity>
   </Recording>
 </Config>

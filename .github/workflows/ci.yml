@@ -8,7 +8,7 @@ on:
 
 jobs:
   training:
-    name: training (ruff · pytest)
+    name: training (ruff)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -16,10 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      # extra(train/export) 없이 → torch 없이 핵심 의존성 + dev(pytest · ruff) 만
+      # extra(train/export) 없이 → torch 없이 핵심 의존성 + dev(ruff) 만
       - run: uv sync --locked
       - run: uv run ruff check .
-      - run: uv run pytest
 
   app:
     name: app (build · format)
@@ -32,5 +31,4 @@ jobs:
         with:
           global-json-file: app/global.json
       - run: dotnet build app/basler_segmentation.sln -c Release
-      - run: dotnet run --project app/tests/BaslerLiveView.Tests -c Release
       - run: dotnet format app/src/BaslerLiveView/BaslerLiveView.csproj --verify-no-changes

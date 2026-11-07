@@ -34,7 +34,6 @@ public sealed class FrameRecorder : IDisposable
 
     private readonly BlockingCollection<Frame> _queue;
     private readonly Thread _worker;
-    private readonly string _sessionPrefix;
 
     // Sampling clock. Only ever read/written from the grab thread inside Submit()
     // (and reset in Start(), before any frame is accepted), so it needs no locking.
@@ -51,16 +50,12 @@ public sealed class FrameRecorder : IDisposable
     public event Action<Exception>? ErrorOccurred;
 
     /// <param name="directory">Base folder (already resolved to an absolute path);
-    /// each session records into <c>kimm_YYMMDD_HHMMSS/Mono</c> underneath it.</param>
+    /// each session records into <c>YYMMDD_HHMMSS/Mono</c> underneath it. The base
+    /// folder is per environment (<c>datasets/kimm/raw</c>, <c>datasets/bestfa/raw</c>),
+    /// so session names need no prefix.</param>
     /// <param name="queueCapacity">Max frames buffered before new ones are dropped.</param>
-    public FrameRecorder(string directory, int queueCapacity = 120, string sessionPrefix = "kimm")
+    public FrameRecorder(string directory, int queueCapacity = 120)
     {
-        if (string.IsNullOrWhiteSpace(sessionPrefix)
-            || sessionPrefix.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-            || sessionPrefix.Contains('/') || sessionPrefix.Contains('\\')
-            || sessionPrefix is "." or "..")
-            throw new ArgumentException("Invalid recording session prefix", nameof(sessionPrefix));
-        _sessionPrefix = sessionPrefix;
         Directory = directory;
         SessionDirectory = directory;   // until the first Start()
         _queue = new BlockingCollection<Frame>(Math.Max(1, queueCapacity));
@@ -90,7 +85,7 @@ public sealed class FrameRecorder : IDisposable
     /// Resolve the configured base folder. Absolute paths are used as-is; relative
     /// ones are anchored at the repo root — the nearest ancestor of the exe holding
     /// <c>.git</c> — so the default <c>datasets/kimm/raw</c> puts the per-session
-    /// <c>kimm_YYMMDD_HHMMSS/Mono</c> folders where training/preprocess.py
+    /// <c>YYMMDD_HHMMSS/Mono</c> folders where training/preprocess.py
     /// reads its raw sources from.
     ///
     /// The marker is <c>.git</c> rather than any pipeline file on purpose: renaming
@@ -121,10 +116,11 @@ public sealed class FrameRecorder : IDisposable
     {
         if (_recording) return;
 
-        // One timestamp per session → each REC run gets its own kimm_YYMMDD_HHMMSS/
+        // One timestamp per session → each REC run gets its own YYMMDD_HHMMSS/
         // folder, so sessions never mix and a plain name sort is chronological.
+        // Scene notes go in the session's session.yaml (the labeller creates it), not the name.
         _session = DateTime.Now.ToString("yyMMdd_HHmmss");
-        SessionDirectory = Path.Combine(Directory, $"{_sessionPrefix}_{_session}", "Mono");
+        SessionDirectory = Path.Combine(Directory, _session, "Mono");
         System.IO.Directory.CreateDirectory(SessionDirectory);
         _nextSaveTicks = _clock.ElapsedTicks;   // first frame of a session is always kept
         Volatile.Write(ref _accepted, 0);

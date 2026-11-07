@@ -1,0 +1,121 @@
+created: '2026-11-07T14:46:28+09:00'
+env: kimm
+source: kimm
+task: obb
+config: preprocess.kimm.yaml
+git:
+  commit: b2bfb22facfe70546f21a4b7db5d073c0fe8f8ff
+  dirty: true
+hash: sha256:6c13ce95563b750414b0f1db51c69c0f6023c74d49dc83ae0aaa623058cb1f6c
+images:
+  train: 6312
+  val: 808
+  test: 537
+sessions:
+  '260928_204214':
+    split: train
+    images: 6
+    hash: sha256:7ff470a75145fb15b6f08db33b350df9a07f467258092c1300da4877c846d78a
+  '261014_174102':
+    split: test
+    images: 36
+    hash: sha256:8bc7700736110d14429c8a70734977d31b78889025aabe043705f278437519c6
+  '261014_174544':
+    split: train
+    images: 26
+    hash: sha256:62988873b7929a2bf78d9d2537197337d70c779e65b27dccb7024ac9265c3079
+  '261014_175950':
+    split: train
+    images: 10
+    hash: sha256:0a4a8a73111ef5157f1e6e1ba2c93932abf28ca1e647014b0c0b03b621ea9447
+  '261014_180706':
+    split: train
+    images: 220
+    hash: sha256:20ae8dbd2d7b0bc55d72d1b3009f5a2f908d173f88d49871e2dd93372c17390f
+  '261014_181510':
+    split: train
+    images: 154
+    hash: sha256:55e22361d1e60f4c68e49c3143c9f2e604d547130dfb630215c1f26be3d9f589
+  '261014_182249':
+    split: test
+    images: 220
+    hash: sha256:3e7d3ddf4f286d84586c49daa4fed802b5e8747bd3c56f80999c01d88abc7695
+  '261014_183709':
+    split: val
+    images: 219
+    hash: sha256:91f5f2d7a398f0cd5df9febfadde05ae79a5e5b209f409826f392133994995c7
+  '261019_153038':
+    split: train
+    images: 95
+    hash: sha256:000f5b51ccf27148681178eeb8908a087a76ab9f310b979bd3433b5d62cbe4ad
+  '261019_153805':
+    split: val
+    images: 95
+    hash: sha256:92d836ac6443582caa9c7e937b61e2c64bcca3c449140f4762335be5d2a33c37
+  '261019_155904':
+    split: train
+    images: 848
+    hash: sha256:de99aa135896949df1bb18a8f4eec9516b8785e426ef0ee6e72f03eb8810e283
+    scene: 격자실험3
+  '261019_160703':
+    split: val
+    images: 494
+    hash: sha256:bb971979bc7d756933fc32535aa6576d1458e77a3479501910724f27b78e993e
+    scene: 격자실험4
+  '261019_161818':
+    split: test
+    images: 281
+    hash: sha256:b2e2d66ef3ecb78771edc3dc918765cc3118546c404a63e6ec2d1b9933ff468b
+  '261020_155327':
+    split: train
+    images: 2281
+    hash: sha256:c4db063d5438d80424bde1376f822955c9c5bb88953ee739bfdc5d47358d9f80
+    scene: hollow_정사각형1
+  '261020_172130':
+    split: train
+    images: 2672
+    hash: sha256:d530b113968314d572aaf192486f5036fafcda16e3b0a469d0086038d0b430d1
+    scene: hollow_정사각형2
+skipped:
+  '261014_174102': 1
+  '261019_161818': 2
+  '261020_155327': 4
+  '261020_172130': 3
+processing:
+  task: obb
+  names:
+    0: wire
+  seed: 0
+  source:
+    name: kimm
+    path: ../datasets/kimm/raw/[0-9]*
+    labels: labels_seg
+    names:
+      0: wire
+    class_map:
+      wire: wire
+    group_by: session
+    val_ratio: 0.2
+    test_ratio: 0.1
+    val_sessions:
+    - '261019_160703'
+    - '261014_183709'
+    - '261019_153805'
+    test_sessions:
+    - '261019_161818'
+    - '261014_182249'
+    - '261014_174102'
+    oversample: 1
+    crop:
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50
+      center_y: 50
+      auto_crop:
+        enabled: false
+        margin: 0.25
+        min_size: 640
+      min_area: 0.1
+    resize: null
+    type: seg

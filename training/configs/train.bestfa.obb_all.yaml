@@ -1,11 +1,11 @@
-# BestFA 전용 학습. KIMM 데이터·학습 결과와 분리.
-# 전체 재학습 epochs는 BestFA single 실행의 best epoch로 조정하세요.
-base: base/train.yaml
+# BESTFA 배포용: train+val+test 전체 학습.
+# epochs는 기존 값. 실행 전 학습 길이를 결정할 것; val 점수는 독립 평가가 아님.
+base: base/bestfa.yaml
 dataset: bestfa
 
 train:
   model: yolo26s-obb.pt
-  data: ../datasets/bestfa/processed/obb/bestfa/data.all.yaml
+  data: ../datasets/bestfa/processed_obb/data.all.yaml
   epochs: 100
   patience: 0
   project: runs/bestfa/obb

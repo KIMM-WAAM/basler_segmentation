@@ -70,14 +70,17 @@ public sealed class CameraConfig
     public double OutlineOpacity { get; set; } = 0.9;
 
     /// <summary>Where the Record button writes PNGs (as received from the camera).
-    /// Each REC session gets its own <c>kimm_YYMMDD_HHMMSS/Mono</c> folder underneath.
+    /// Each REC session gets its own <c>YYMMDD_HHMMSS/Mono</c> folder underneath.
     /// Relative paths are anchored at the repo root (see
     /// <see cref="FrameRecorder.ResolveDirectory"/>). The default is the <c>raw</c>
-    /// folder whose <c>kimm_*</c> sessions training/preprocess.py reads.</summary>
+    /// folder whose <c>[0-9]*</c> sessions training/preprocess.py reads.</summary>
     public string RecordDir { get; set; } = "datasets/kimm/raw";
 
-    /// <summary>Session folder prefix for the selected capture environment.</summary>
-    public string RecordSessionPrefix { get; set; } = "kimm";
+    /// <summary>Capture environment this profile belongs to (kimm / bestfa). Session
+    /// folders carry no prefix — the environment is the <c>datasets/&lt;env&gt;/</c>
+    /// folder they live in — so this only guards <c>--dataset</c> against loading
+    /// another environment's profile, and labels the window.</summary>
+    public string CaptureEnvironment { get; set; } = "kimm";
 
     /// <summary>How many frames per second Record saves. Consecutive grabs are nearly
     /// identical, so the grab stream is sampled down to something worth labelling.
@@ -176,8 +179,8 @@ public sealed class CameraConfig
                 var dir = (string?)rec.Element("Directory");
                 if (!string.IsNullOrWhiteSpace(dir)) cfg.RecordDir = dir.Trim();
 
-                var prefix = (string?)rec.Element("SessionPrefix");
-                if (!string.IsNullOrWhiteSpace(prefix)) cfg.RecordSessionPrefix = prefix.Trim();
+                var env = (string?)rec.Element("Environment");
+                if (!string.IsNullOrWhiteSpace(env)) cfg.CaptureEnvironment = env.Trim();
 
                 // 0 is meaningful here (= save every frame), so accept it too.
                 var saveFps = (double?)rec.Element("Fps");

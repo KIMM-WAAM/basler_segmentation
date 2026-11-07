@@ -1,18 +1,19 @@
 """
 원본 데이터를 학습용 YOLO seg/obb 데이터셋으로 전처리(크롭 · 리사이즈 · 클래스 통일 · 분할).
 
-폴더 규약:
-- 원천은 datasets/<환경>/raw/<세션>/ (환경 = kimm / bestfa).
-- 산출물은 소스별로 out/<이름>/images|labels/{train,val,test} 에 씁니다.
-- out/data.yaml 하나가 디스크에 있는 소스 산출물 전체를 묶어 train.py 가 읽습니다
-  (Ultralytics 는 각 split 에 폴더 목록을 지원). test 는 있을 때만 키를 넣습니다.
+폴더 규약 (환경 = kimm / bestfa, config 하나 = 소스 하나 = 산출물 폴더 하나):
+- 원천은 datasets/<환경>/raw/<세션>/.
+- 산출물은 out = datasets/<환경>/processed_seg/ (OBB 는 --task obb 로 processed_obb/) 에 바로:
+    images|labels/{train,val,test}/   preview/
+    data.yaml       train/val/test 분할 그대로 (train.single · eval)
+    data.all.yaml   배포용 전체 데이터 목록 (train.*_all.yaml)
+    manifest.yaml · manifest.files.tsv   어느 세션의 어느 파일이 어느 split 에 — provenance.py
+  test 는 있을 때만 키를 넣습니다.
 
 설계 원칙:
 - 전처리에는 스테이지가 없습니다 — configs/preprocess.<환경>.yaml 이 소스 구성·크롭·비율
-  등 전부를 소유하고, 소스마다 raw 를 out/<이름>/ 으로 한 번만 굽습니다
-  (out = datasets/<환경>/processed/seg, OBB 는 --task obb 로 processed/obb 에 저장).
-  스테이지(공개 warm-up → in-domain 적응)는 train/eval config 가 어느 data.yaml 을
-  읽을지로 정합니다: 소스별 processed/<이름>/data.yaml + 통합 processed/data.yaml.
+  등 전부를 소유하고, raw 를 out 으로 한 번에 굽습니다. 무엇으로 학습할지는 train/eval
+  config 가 어느 data.yaml 을 읽을지로 정합니다.
   --dataset 으로 환경을 선택합니다 (생략 시 kimm). --config 로 직접 지정해도 됩니다.
 - 분할(train/val/test)은 소스 내부에서, oversample 전에 그룹(원본) 단위로 나눕니다.
   Roboflow 증강 사본(..._jpg.rf.<hash>)은 원본 단위로 묶여 같은 split 에만 들어갑니다
@@ -29,8 +30,6 @@
   그 이미지는 데이터셋에서 제외됩니다(기존 동작과 동일: 대상 없는 이미지는 안 넣음).
 - 크롭 인자는 소스마다 독립입니다(공유 기본값 없음). 창을 %로 고정하거나
   (width/height/center_x/center_y), auto_crop 으로 이미지마다 라벨에서 직접 잡습니다.
-- config 의 targets: 에 이름을 적으면 그 소스만 다시 굽습니다 (생략하면 전체). 산출물이
-  소스별 폴더라서 나머지 소스의 기존 산출물은 유지되고, data.yaml 만 매번 다시 묶입니다.
 - 마음에 안 드는 이미지는 원천(raw)에서 이미지 파일만 지우면 됩니다 — 다음 실행에서
   짝 라벨(.txt)이 자동 삭제됩니다 (이미지가 하나도 없는 폴더는 경로 실수로 보고 보호).
 - 라벨에 지정 클래스(class_map)가 하나도 없는 데이터는 이미지+라벨 쌍째 원천에서
@@ -46,7 +45,7 @@ train.*.yaml 의 증강 하이퍼파라미터로 조절하고, 결과 확인은
   · Roboflow export 는 기본 포함.
   · 로컬(kimm)은 최소 형식으로 하나 작성:  names: {0: wire}\n train: Mono
     (labeller/server.py 가 띄울 때 자동으로 만들어 줍니다.)
-  · 소스 path 가 글롭(`raw/kimm_*` — 앱 REC 세션 폴더들)이면 폴더 전부를 한 소스로
+  · 소스 path 가 글롭(`raw/[0-9]*` — 앱 REC 세션 폴더들)이면 폴더 전부를 한 소스로
     묶습니다. 폴더마다 data.yaml 을 두기 번거로우면 그 소스에 `names:` 를 적으면
     data.yaml 없는 폴더는 그것(train: Mono)으로 읽습니다.
 
@@ -57,14 +56,20 @@ train.*.yaml 의 증강 하이퍼파라미터로 조절하고, 결과 확인은
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import os
 import random
 import shutil
 from pathlib import Path
 
 import yaml
+from tqdm import tqdm
 
+import provenance
 from common import IMG_EXTS, INDEX_RE, Stage, normalize_names, raw_image_dir
+from dataset_paths import read_session_meta, session_crop
+from source_crop import INDEX as CROP_INDEX
 
 # ── 크롭 기하 (순수 함수 — tests/ 가 직접 검증) ────────────────────────────
 
@@ -379,12 +384,11 @@ class Cropper:
 
 class Preprocessor(Stage):
     """
-    소스들을 소스별 산출물 + data.yaml 의 학습용 데이터셋으로 만드는 단계.
+    소스(config 하나에 하나)를 out 폴더의 학습용 데이터셋 + data.yaml 로 만드는 단계.
 
     config 는 configs/preprocess.<환경>.yaml 입니다 (--dataset 생략 시 kimm).
-    전처리에는 스테이지가 없습니다 — 소스마다 raw 를 out/<이름>/ 으로 한 번
-    굽고, 무엇으로 학습할지는 train/eval config 가 어느 data.yaml 을 읽을지로 정합니다
-    (소스별 data.yaml · data.all.yaml + 전체 통합 data.yaml 을 모두 씁니다).
+    전처리에는 스테이지가 없습니다 — raw 를 out 으로 한 번 굽고, 무엇으로 학습할지는
+    train/eval config 가 data.yaml · data.all.yaml 중 어느 것을 읽을지로 정합니다.
     """
 
     config_glob = "preprocess.*.yaml"
@@ -401,18 +405,23 @@ class Preprocessor(Stage):
             self.fail(f"--dataset {dataset} 와 config 의 dataset 이 다릅니다")
 
         # task/out 은 실행 인자로 덮어쓸 수 있음 — 같은 소스 정의로 seg 와 obb 산출물을
-        # 따로 굽기 위해 (예: --task obb --out ../datasets/kimm/processed/obb). 소스 정의를
+        # 따로 굽기 위해 (--task obb → datasets/<환경>/processed_obb). 소스 정의를
         # 복제한 두 번째 config 를 두지 않으려는 것.
         if task:
             self.cfg["task"] = task
             if self.cfg.get("dataset") and not out:
-                self.cfg["out"] = str(dataset_root(self.cfg["dataset"]) / "processed" / task)
+                self.cfg["out"] = str(dataset_root(self.cfg["dataset"]) / f"processed_{task}")
         if out:
             self.cfg["out"] = out
         for key in ("out", "sources"):
             if not self.cfg.get(key):
                 self.fail(f"{key} 가 없습니다 — 기본값으로 정하지 않습니다.")
-        self.targets = list(self.cfg.get("targets") or [])
+        if len(self.cfg["sources"]) != 1:
+            # 산출물이 out 에 바로 쌓이므로 소스가 둘이면 서로 덮어쓴다 — 환경마다 config 하나
+            self.fail(f"sources 는 하나여야 합니다 (지금 {len(self.cfg['sources'])}개) — "
+                      f"다른 원천은 config 를 따로 두세요.")
+        if self.cfg.get("targets"):
+            self.log("targets 는 더 이상 쓰지 않음 (무시) — config 하나 = 소스 하나")
         self.task = str(self.cfg.get("task"))
         if self.task not in ("seg", "obb"):
             self.fail(f"task 는 seg 또는 obb 여야 합니다: {self.task}")
@@ -430,24 +439,12 @@ class Preprocessor(Stage):
         self._obb_dropped = 0         # 퇴화 등으로 변환 못 해 폐기한 라벨 수
         self.log(f"task: {self.task} → {self.out}")   # 무엇을 굽는지 항상 남긴다
 
-    # -- 소스 선택 -------------------------------------------------------
+    # -- 소스 ------------------------------------------------------------
 
-    def all_sources(self) -> list:
-        """config 의 sources 그대로 (yaml 순서 유지)."""
-        return list(self.cfg.get("sources") or [])
-
-    def selected_sources(self) -> list:
-        """config 의 targets 로 좁힌 소스만 (없으면 전체). 이름이 틀리면 바로 알려줍니다."""
-        sources = self.all_sources()
-        if not self.targets:
-            return sources
-
-        by_name = {s["name"]: s for s in sources}
-        unknown = [t for t in self.targets if t not in by_name]
-        if unknown:
-            self.fail(f"targets 에 없는 소스 이름: {', '.join(unknown)}\n"
-                      f"  sources 의 이름: {', '.join(by_name) or '(없음)'}")
-        return [by_name[t] for t in self.targets]
+    @property
+    def source(self) -> dict:
+        """config 의 소스 (하나 — __init__ 에서 확인)."""
+        return self.cfg["sources"][0]
 
     # -- 소스 읽기 -------------------------------------------------------
 
@@ -456,12 +453,11 @@ class Preprocessor(Stage):
         소스 하나가 실제로 읽을 폴더들 (이름순).
 
         path 에 glob 문자(`*?[`)가 있으면 매칭되는 폴더 **전부를 한 소스로** 다룹니다.
-        앱(BaslerLiveView)의 REC 는 녹화 세션마다 `raw/kimm_YYMMDD_HHMMSS[_메모]/`
-        를 새로 만들기 때문에(FrameRecorder), 세션이 늘어도 sources/targets 를
-        건드리지 않게 하려는 것입니다. 산출물 폴더 이름과 targets 는 그대로 소스
-        `name` 이고, 글롭은 "그 소스의 원본이 어디 흩어져 있는지"만 바꿉니다.
+        앱(BaslerLiveView)의 REC 는 녹화 세션마다 `raw/YYMMDD_HHMMSS/`
+        를 새로 만들기 때문에(FrameRecorder), 세션이 늘어도 config 를 건드리지 않게
+        하려는 것입니다.
 
-        글롭은 경로의 **마지막 한 칸**에만 씁니다 (`raw/kimm_*` ○, `raw/*/Mono` ✗).
+        글롭은 경로의 **마지막 한 칸**에만 씁니다 (`raw/[0-9]*` ○, `raw/*/Mono` ✗).
         `Mono/` (또는 이전 `images/`)가 없는 항목은 세지 않습니다 — raw/ 에 같이 있는 zip 이나
         아직 비어 있는 세션 폴더가 조용히 끼지 않게.
         """
@@ -588,7 +584,6 @@ class Preprocessor(Stage):
         이미지가 나온 소스 폴더 이름 — group_by: session 분할의 그룹 키입니다.
         """
         class_map = src.get("class_map", {})
-        cropper = Cropper(src.get("crop"))
 
         items = []
         # 이미지 파일명 → 그 이미지의 경로. 같은 이미지가 여러 split 에 중복 등록되는
@@ -596,68 +591,99 @@ class Preprocessor(Stage):
         # 산출물 이름이 `<소스>__<파일명>` 이라 충돌하면 조용히 덮어써집니다.
         owner: dict = {}
         no_class = []  # 라벨은 있지만 지정 클래스가 없는 (img, lbl) 쌍 — 마지막에 일괄 삭제
-        for src_dir in self.source_dirs(src):
-            dy, src_names = self.read_dir_cfg(src, src_dir)
+        # manifest 용 — 세션 → 원본 이미지 수 · session.yaml (run 이 읽음)
+        self.raw_counts: dict = {}
+        self.session_meta: dict = {}
+        self.session_crops: dict = {}
+        self.raw_labels: dict = {}
+        self.crop_index: dict = {}
+        self.log("입력 이미지 수 확인 중...")
+        plans = [(directory, *self.read_dir_cfg(src, directory))
+                 for directory in self.source_dirs(src)]
+        total = 0
+        for directory, dy, _ in plans:
             for key in ("train", "val", "valid", "test"):
-                img_dir = self.find_split_image_dir(src_dir, dy, key)
-                if img_dir is None:
-                    continue
-                lbl_dir = self.labels_dir_for(img_dir, str(src.get("labels") or "labels"))
-                self.prune_orphan_labels(img_dir, lbl_dir, src["name"])
-                self.collect_dir(src, src_dir.name, img_dir, lbl_dir, src_names,
-                                 class_map, cropper, items, owner, no_class)
+                image_dir = self.find_split_image_dir(directory, dy, key)
+                if image_dir is not None:
+                    total += sum(p.suffix.lower() in IMG_EXTS for p in image_dir.iterdir())
+        with tqdm(total=total, desc="[1/2] collect/crop", unit="img",
+                  ascii=True, dynamic_ncols=True, mininterval=0.5) as progress:
+            for src_dir, dy, src_names in plans:
+                progress.set_postfix_str(src_dir.name, refresh=False)
+                crop_cfg = session_crop(src_dir)
+                self.session_crops[src_dir.name] = crop_cfg
+                cropper = Cropper(crop_cfg)
+                self.session_meta[src_dir.name] = read_session_meta(src_dir)
+                for key in ("train", "val", "valid", "test"):
+                    img_dir = self.find_split_image_dir(src_dir, dy, key)
+                    if img_dir is None:
+                        continue
+                    lbl_dir = self.labels_dir_for(img_dir, str(src.get("labels") or "labels"))
+                    self.prune_orphan_labels(img_dir, lbl_dir, src["name"])
+                    before = len(owner)
+                    self.collect_dir(src, src_dir.name, img_dir, lbl_dir, src_names,
+                                     class_map, cropper, items, owner, no_class, progress)
+                    self.raw_counts[src_dir.name] = (self.raw_counts.get(src_dir.name, 0)
+                                                     + len(owner) - before)
+
+                self.absorb_crop_stats(cropper)
 
         self.prune_no_class_pairs(src["name"], class_map, items, no_class)
-        self.absorb_crop_stats(cropper)
         return items
 
     def collect_dir(self, src: dict, session: str, img_dir: Path, lbl_dir: Path,
                     src_names: dict, class_map: dict, cropper, items: list,
-                    owner: dict, no_class: list) -> None:
+                    owner: dict, no_class: list, progress=None) -> None:
         """collect_source 의 폴더 하나 분량 — 이미지별로 라벨 remap → 크롭 → OBB 변환."""
         for img in sorted(img_dir.iterdir()):
             if img.suffix.lower() not in IMG_EXTS:
                 continue
-            prev = owner.get(img.name)
-            if prev is not None:
-                if prev == img:
-                    continue   # 같은 파일이 여러 split 경로에 걸린 경우 — 한 번만
-                self.fail(f"{src['name']}: 파일명이 겹칩니다 — 산출물에서 서로를 "
-                          f"덮어씁니다. 한쪽을 지우거나 이름을 바꾸세요.\n"
-                          f"  {prev}\n  {img}")
-            owner[img.name] = img
-            lbl = lbl_dir / (img.stem + ".txt")
-            if not lbl.exists():
-                continue
-            lines = self.remap_lines(lbl.read_text(encoding="utf-8"),
-                                     src_names, class_map)
-            if not lines:
-                no_class.append((img, lbl))
-                continue
+            try:
+                prev = owner.get(img.name)
+                if prev is not None:
+                    if prev == img:
+                        continue   # 같은 파일이 여러 split 경로에 걸린 경우 — 한 번만
+                    self.fail(f"{src['name']}: 파일명이 겹칩니다 — 산출물에서 서로를 "
+                              f"덮어씁니다. 한쪽을 지우거나 이름을 바꾸세요.\n"
+                              f"  {prev}\n  {img}")
+                owner[img.name] = img
+                lbl = lbl_dir / (img.stem + ".txt")
+                if not lbl.exists():
+                    continue
+                lines = self.remap_lines(lbl.read_text(encoding="utf-8"),
+                                         src_names, class_map)
+                if not lines:
+                    no_class.append((img, lbl))
+                    continue
 
-            cropped = cropper.apply(img, lines)
-            if cropped is None:
-                continue
-            rect, lines = cropped
+                self.raw_labels[img.name] = list(lines)
+                cropped = cropper.apply(img, lines)
+                if cropped is None:
+                    continue
+                rect, lines = cropped
 
-            if self.task == "obb":
-                # 소스 라벨이 폴리곤(seg)인지 이미 OBB인지는 파일만 보고 구분하기
-                # 어렵고(둘 다 '클래스 + 좌표 8개'가 될 수 있음) 잘못 넘겨짚으면
-                # 라벨이 조용히 망가지므로, config 의 type 으로만 판단합니다.
-                stype = src.get("type")
-                if stype == "seg":
-                    lines = self.obb_lines(img, lines, rect, src.get("resize"))
-                    if not lines:
-                        continue          # 변환 가능한 인스턴스가 없으면 이미지째 제외
-                elif stype == "obb":
-                    pass  # 이미 OBB 라벨이므로 변환 불필요
-                elif stype is None:
-                    self.fail(f"{src['name']}: task: obb 로 구우려면 소스마다 "
-                              f"type: seg 또는 type: obb 가 필요합니다 "
-                              f"(원본 라벨이 폴리곤인지 OBB인지 추측하지 않습니다).")
-                else:
-                    self.fail(f"{src['name']}: type 은 seg 또는 obb 여야 합니다: {stype}")
-            items.append((img, lines, rect, session))
+                if self.task == "obb":
+                    # 소스 라벨이 폴리곤(seg)인지 이미 OBB인지는 파일만 보고 구분하기
+                    # 어렵고(둘 다 '클래스 + 좌표 8개'가 될 수 있음) 잘못 넘겨짚으면
+                    # 라벨이 조용히 망가지므로, config 의 type 으로만 판단합니다.
+                    stype = src.get("type")
+                    if stype == "seg":
+                        lines = self.obb_lines(img, lines, rect, src.get("resize"))
+                        if not lines:
+                            continue          # 변환 가능한 인스턴스가 없으면 이미지째 제외
+                    elif stype == "obb":
+                        pass  # 이미 OBB 라벨이므로 변환 불필요
+                    elif stype is None:
+                        self.fail(f"{src['name']}: task: obb 로 구우려면 소스마다 "
+                                  f"type: seg 또는 type: obb 가 필요합니다 "
+                                  f"(원본 라벨이 폴리곤인지 OBB인지 추측하지 않습니다).")
+                    else:
+                        self.fail(f"{src['name']}: type 은 seg 또는 obb 여야 합니다: {stype}")
+                items.append((img, lines, rect, session))
+            finally:
+                if progress is not None:
+                    progress.update(1)
+
 
     def obb_lines(self, img: Path, lines: list, rect, resize) -> list:
         """
@@ -752,12 +778,16 @@ class Preprocessor(Stage):
                 im.save(dst)
 
     def write_item(self, src: dict, item: tuple, split: str, reps: int,
-                   dirs: dict, lbls: dict) -> None:
-        """항목 하나를 split 폴더에 reps 개(oversample) 만큼 기록."""
-        img, lines, rect, _ = item
+                   dirs: dict, lbls: dict) -> tuple:
+        """
+        항목 하나를 split 폴더에 reps 개(oversample) 만큼 기록. manifest 한 줄을 돌려준다:
+        (split, 세션, 산출 파일명, 원본 이미지 sha256, 라벨 sha256, reps).
+        """
+        img, lines, rect, session = item
         resize = src.get("resize")
         text = "\n".join(lines) + "\n"
         first = None
+        raw_hash = provenance.sha256_file(img)
 
         for r in range(reps):
             suffix = "" if r == 0 else f"_os{r}"
@@ -769,112 +799,105 @@ class Preprocessor(Stage):
             else:
                 shutil.copyfile(first, dst)
             (lbls[split] / (stem + ".txt")).write_text(text, encoding="utf-8")
+            self.crop_index[dst.name] = {
+                "image": Path(os.path.relpath(img.resolve(), self.out.resolve())).as_posix(),
+                "raw_sha256": raw_hash, "labels": self.raw_labels[img.name],
+                "crop": self.session_crops[session], "resize": resize,
+                "session": session, "split": split,
+            }
+        return (split, session, first.name, raw_hash,
+                provenance.sha256_text(text), reps)
 
     # -- 미리보기 --------------------------------------------------------
 
     def write_preview(self, count: int) -> None:
         """
         산출물에서 몇 장을 골라 라벨 폴리곤을 그려 저장 — 크롭·라벨 변환이 맞는지
-        눈으로 확인하는 용도. 소스별로 out/<이름>/preview/ 에 count 장씩,
-        split 을 섞어 정렬 후 균등 간격으로 뽑습니다.
+        눈으로 확인하는 용도. out/preview/ 에 count 장, split 을 섞어 정렬 후 균등 간격으로 뽑습니다.
         """
         from PIL import Image, ImageDraw
 
-        written = 0
-        for sub in sorted(d for d in self.out.iterdir()
-                          if d.is_dir() and (d / "images").is_dir()):
-            preview_dir = sub / "preview"
-            if preview_dir.exists():
-                shutil.rmtree(preview_dir)
-            preview_dir.mkdir(parents=True, exist_ok=True)
+        preview_dir = self.out / "preview"
+        if preview_dir.exists():
+            shutil.rmtree(preview_dir)
+        preview_dir.mkdir(parents=True, exist_ok=True)
 
-            images = []
-            for split in ("train", "val", "test"):
-                images += sorted(p for p in (sub / f"images/{split}").glob("*")
-                                 if p.suffix.lower() in IMG_EXTS)
-            if not images:
-                continue
-            take = min(count, len(images))
-            step = len(images) / take
-            for i in range(take):
-                path = images[int(i * step)]
-                lbl = self.labels_dir_for(path.parent) / (path.stem + ".txt")
-                with Image.open(path) as im:
-                    canvas = im.convert("RGB")
-                    draw = ImageDraw.Draw(canvas)
-                    for line in lbl.read_text(encoding="utf-8").splitlines():
-                        v = line.split()
-                        if len(v) < 7:
-                            continue
-                        pts = [(float(v[j]) * canvas.width, float(v[j + 1]) * canvas.height)
-                               for j in range(1, len(v) - 1, 2)]
-                        draw.polygon(pts, outline=(255, 40, 40))
-                    canvas.save(preview_dir / f"{path.parent.name}__{path.stem}.png")
-                written += 1
-            self.log(f"미리보기: {sub.name}/preview/ {take}장")
-
-        self.log(f"미리보기 총 {written}장 (소스별 preview/ 폴더)")
+        images = []
+        for split in ("train", "val", "test"):
+            images += sorted(p for p in (self.out / f"images/{split}").glob("*")
+                             if p.suffix.lower() in IMG_EXTS)
+        if not images:
+            return
+        take = min(count, len(images))
+        step = len(images) / take
+        for i in range(take):
+            path = images[int(i * step)]
+            lbl = self.labels_dir_for(path.parent) / (path.stem + ".txt")
+            with Image.open(path) as im:
+                canvas = im.convert("RGB")
+                draw = ImageDraw.Draw(canvas)
+                for line in lbl.read_text(encoding="utf-8").splitlines():
+                    v = line.split()
+                    if len(v) < 7:
+                        continue
+                    pts = [(float(v[j]) * canvas.width, float(v[j + 1]) * canvas.height)
+                           for j in range(1, len(v) - 1, 2)]
+                    draw.polygon(pts, outline=(255, 40, 40))
+                canvas.save(preview_dir / f"{path.parent.name}__{path.stem}.png")
+        self.log(f"미리보기: preview/ {take}장")
 
     # -- 실행 ------------------------------------------------------------
 
+    def write_manifest(self, src: dict, out_dir: Path, rows: list) -> None:
+        """
+        out/manifest.yaml + manifest.files.tsv — 이 산출물에 어느 세션의 어느 파일이
+        어느 split 으로 들어갔는지와 그 지문 (provenance.write_manifest). train.py 가 실행 기록에
+        통째로 옮겨 적으므로, processed 를 다시 구워도 모델 쪽 기록은 남는다.
+        """
+        processing = {"crop_sources_sha256": provenance.sha256_file(out_dir / CROP_INDEX),
+                      "session_crops": self.session_crops, "task": self.task, "names": self.final_names, "seed": self.cfg.get("seed", 0),
+                      "source": src}
+        header = {"env": self.cfg.get("dataset"), "source": src["name"], "task": self.task,
+                  "config": self.config_path.name}
+        doc = provenance.write_manifest(out_dir, header, processing, rows, self.raw_counts,
+                                        self.session_meta)
+        self.log(f"{src['name']}: manifest {doc['hash'][:19]}… (세션 {len(doc['sessions'])}개)")
+
     def write_data_yaml(self) -> tuple[list, list, list]:
         """
-        학습용 data.yaml 을 다시 쓴다 — 두 종류:
-        · out/<이름>/data.yaml      소스 하나짜리 (eval.final → kimm test)
-        · out/<이름>/data.all.yaml  그 소스 train+val+test 전부 (train.*_all)
-        · out/data.yaml             디스크의 소스 산출물 전체 통합본 (train.single)
-        스테이지 구분은 여기가 아니라 train/eval config 가 어느 파일을 읽을지로 정합니다.
+        학습용 data.yaml 을 다시 쓴다 — 두 종류 (스테이지 구분은 train/eval config 가 고름):
+        · out/data.yaml      train/val/test 분할 그대로 (train.single · eval.single · eval.final)
+        · out/data.all.yaml  배포용 전체 데이터 목록 (train.*_all.yaml)
+        반환: data.yaml 에 들어간 split 이름들.
         """
         def has_images(d: Path) -> bool:
             return d.is_dir() and any(p.suffix.lower() in IMG_EXTS for p in d.iterdir())
 
-        self.out.mkdir(parents=True, exist_ok=True)
-        all_names = [s["name"] for s in self.all_sources()]
-        train = [f"{n}/images/train" for n in all_names
-                 if has_images(self.out / n / "images/train")]
-        val = [f"{n}/images/val" for n in all_names
-               if has_images(self.out / n / "images/val")]
-        test = [f"{n}/images/test" for n in all_names
-                if has_images(self.out / n / "images/test")]
-
         stale = sorted(d.name for d in self.out.iterdir()
-                       if d.is_dir() and d.name not in all_names)
+                       if d.is_dir() and d.name not in ("images", "labels", "preview"))
         if stale:
-            self.log(f"경고: sources 에 없는 산출물 폴더는 data.yaml 에서 "
-                     f"제외했습니다: {', '.join(stale)} (안 쓰면 지우세요)")
+            self.log(f"경고: 산출물이 아닌 폴더가 있습니다: {', '.join(stale)} "
+                     f"(예전 구조의 <소스>/ 폴더라면 지우세요)")
 
-        # 소스별 data.yaml — 그 소스 산출물이 있는 폴더에만 씁니다.
-        for n in all_names:
-            src_out = self.out / n
-            per = {"path": str(src_out.resolve())}
-            for sp in ("train", "val", "test"):
-                if has_images(src_out / f"images/{sp}"):
-                    per[sp] = f"images/{sp}"
-            if len(per) == 1:      # 산출물이 없는 소스 (targets 로 안 구운 적 없는 경우 등)
-                continue
-            per["names"] = self.final_names
-            with (src_out / "data.yaml").open("w", encoding="utf-8") as f:
-                yaml.safe_dump(per, f, allow_unicode=True, sort_keys=False)
-            # 전체 데이터 버전 (배포용 학습) — train 에 train+val+test 를 모두 넣고, val 은
-            # 지표를 찍기 위한 자리라 val split 을 그대로 둠 (train 과 겹치니 지표는 낙관적,
-            # early stopping 은 의미 없음 → 그 config 는 patience 를 끔).
-            splits = [per[sp] for sp in ("train", "val", "test") if sp in per]
-            every = {"path": per["path"], "train": splits,
-                     "val": per.get("val", splits[0]), "names": self.final_names}
-            with (src_out / "data.all.yaml").open("w", encoding="utf-8") as f:
-                yaml.safe_dump(every, f, allow_unicode=True, sort_keys=False)
-
-        data_yaml = {
-            "path": str(self.out.resolve()),
-            "train": train,
-            "val": val,
-            "names": self.final_names,
-        }
-        if test:   # test 는 선택 사항 — 없으면 키 자체를 넣지 않음 (빈 리스트 금지)
-            data_yaml["test"] = test
+        # path 키는 쓰지 않는다 — 없으면 Ultralytics(와 eval · provenance)가 이 yaml 이 있는 폴더를
+        # 기준으로 삼으므로, 저장소를 옮기거나 폴더 이름을 바꿔도 그대로 쓸 수 있다. (`path: .` 은 실행
+        # 위치 기준이라 안 됨.)
+        per = {}
+        for sp in ("train", "val", "test"):   # 빈 split 은 키 자체를 넣지 않음 (빈 값 금지)
+            if has_images(self.out / f"images/{sp}"):
+                per[sp] = f"images/{sp}"
+        per["names"] = self.final_names
         with (self.out / "data.yaml").open("w", encoding="utf-8") as f:
-            yaml.safe_dump(data_yaml, f, allow_unicode=True, sort_keys=False)
-        return train, val, test
+            yaml.safe_dump(per, f, allow_unicode=True, sort_keys=False)
+        # 전체 데이터 버전 (배포용 학습) — train 에 train+val+test 를 모두 넣고, val 은
+        # 지표를 찍기 위한 자리라 val split 을 그대로 둠 (train 과 겹치니 지표는 낙관적,
+        # early stopping 은 의미 없음 → 그 config 는 patience 를 끔).
+        splits = [per[sp] for sp in ("train", "val", "test") if sp in per]
+        if splits:
+            every = {"train": splits, "val": per.get("val", splits[0]), "names": self.final_names}
+            with (self.out / "data.all.yaml").open("w", encoding="utf-8") as f:
+                yaml.safe_dump(every, f, allow_unicode=True, sort_keys=False)
+        return [sp for sp in ("train", "val", "test") if sp in per]
 
     @staticmethod
     def split_group(stem: str) -> str:
@@ -913,6 +936,12 @@ class Preprocessor(Stage):
         by = src.get("group_by") or "file"
         if by not in ("file", "session"):
             self.fail(f"{name}: group_by 는 file 또는 session 이어야 합니다: {by}")
+        bare = [s for sp in ("val", "test") for s in (src.get(f"{sp}_sessions") or [])
+                if not isinstance(s, str)]
+        if bare:
+            # yaml 은 따옴표 없는 261019_160703 을 정수 261019160703 으로 읽는다
+            self.fail(f"{name}: val_sessions/test_sessions 의 세션 이름은 따옴표로 감싸세요 "
+                      f"(예: - '261019_160703'): {', '.join(map(str, bare))}")
         fixed = {sp: [str(s) for s in (src.get(f"{sp}_sessions") or [])]
                  for sp in ("val", "test")}
         if by == "file" and (fixed["val"] or fixed["test"]):
@@ -999,45 +1028,50 @@ class Preprocessor(Stage):
         return split_of
 
     def run(self) -> None:
-        sources = self.selected_sources()
-        all_names = [s["name"] for s in self.all_sources()]
-        if len(sources) != len(all_names):
-            self.log(f"대상(targets): {', '.join(s['name'] for s in sources)} "
-                     f"— 전체 {len(all_names)}개 중. 이 소스만 다시 굽고, "
-                     f"다른 소스의 기존 산출물은 유지됩니다.")
+        src = self.source
+        # 산출물을 비우거나 원본 라벨을 정리하기 전에 모든 세션 크롭을 검증한다.
+        errors = []
+        for directory in self.source_dirs(src):
+            try:
+                session_crop(directory)
+            except (ValueError, OSError) as exc:
+                errors.append(str(exc))
+        if errors:
+            self.fail("세션 크롭 설정을 확인하세요:\n" + "\n".join(errors))
+        dirs = {sp: self.out / f"images/{sp}" for sp in ("train", "val", "test")}
+        lbls = {sp: self.out / f"labels/{sp}" for sp in ("train", "val", "test")}
+        for d in (*dirs.values(), *lbls.values()):
+            self.clear_dir(d)  # 재실행 시 깨끗하게
+        for name in (provenance.MANIFEST, provenance.MANIFEST_FILES, CROP_INDEX):
+            (self.out / name).unlink(missing_ok=True)   # 비운 산출물의 낡은 manifest 를 남기지 않게
 
-        n_train = n_val = n_test = 0
-        for src in sources:
-            out_dir = self.out / src["name"]
-            dirs = {sp: out_dir / f"images/{sp}" for sp in ("train", "val", "test")}
-            lbls = {sp: out_dir / f"labels/{sp}" for sp in ("train", "val", "test")}
-            for d in (*dirs.values(), *lbls.values()):
-                self.clear_dir(d)  # 이 소스의 산출물만 비움 (재실행 시 깨끗하게)
+        counts = {"train": 0, "val": 0, "test": 0}
+        items = self.collect_source(src)
+        if not items:
+            self.fail("대상 이미지 0장 — 경로 / class_map / 크롭을 확인하세요")
 
-            items = self.collect_source(src)
-            if not items:
-                self.log(f"{src['name']}: 대상 이미지 0장 (경로/class_map/크롭 확인)")
-                continue
+        oversample = max(1, int(src.get("oversample", 1)))
+        # 먼저 train/val/test 분할 → oversample 전에 나눠 누수 차단.
+        split_of = self.split_items(src, items)
 
-            oversample = max(1, int(src.get("oversample", 1)))
-            # 소스 내부에서 먼저 train/val/test 분할 → oversample 전에 나눠 누수 차단.
-            split_of = self.split_items(src, items)
-
-            counts = {"train": 0, "val": 0, "test": 0}
-            for i, item in enumerate(items):
+        rows = []
+        with tqdm(items, desc="[2/2] write/hash", unit="img", ascii=True,
+                  dynamic_ncols=True, mininterval=0.5) as progress:
+            for i, item in enumerate(progress):
                 split = split_of[i]
                 reps = oversample if split == "train" else 1  # oversample 은 train 만
-                self.write_item(src, item, split, reps, dirs, lbls)
+                rows.append(self.write_item(src, item, split, reps, dirs, lbls))
                 counts[split] += reps
+        self.log("manifest와 데이터 설정 저장 중...")
+        (self.out / CROP_INDEX).write_text(
+            json.dumps({"version": 1, "images": self.crop_index}, sort_keys=True, ensure_ascii=False),
+            encoding="utf-8")
+        self.write_manifest(src, self.out, rows)
+        how = "session crop.yaml"
+        self.log(f"{src['name']}: train {counts['train']} (oversample x{oversample}), "
+                 f"val {counts['val']}, test {counts['test']}  [{how}]")
 
-            n_train += counts["train"]
-            n_val += counts["val"]
-            n_test += counts["test"]
-            how = Cropper(src.get("crop")).summary()
-            self.log(f"{src['name']}: train +{counts['train']} (oversample x{oversample}), "
-                     f"val +{counts['val']}, test +{counts['test']}  [{how}]")
-
-        train_dirs, val_dirs, test_dirs = self.write_data_yaml()
+        splits = self.write_data_yaml()
 
         if self.task == "obb" and (self._obb_count or self._obb_dropped):
             self.log(f"seg→obb 변환 {self._obb_count}개: 피팅 품질(폴리곤/OBB 면적비) "
@@ -1060,22 +1094,17 @@ class Preprocessor(Stage):
 
         preview = self.cfg.get("preview") or {}
         if preview.get("enabled"):
+            self.log("preview 생성 중...")
             self.write_preview(int(preview.get("count", 12)))
 
-        self.log(f"완료 → {self.out}")
-        self.log(f"이번 실행: train {n_train}장, val {n_val}장, test {n_test}장")
-        self.log(f"data.yaml 에 묶인 소스 폴더: train {len(train_dirs)}개, val {len(val_dirs)}개"
-                 + (f", test {len(test_dirs)}개" if test_dirs else ""))
-        self.log(f"data.yaml: {self.out / 'data.yaml'}")
-        if not val_dirs:
+        self.log(f"완료 → {self.out}  (data.yaml · data.all.yaml · manifest.yaml)")
+        if "val" not in splits:
             # 빈 val 로 학습에 들어가면 Ultralytics 가 데이터셋 빌드에서 죽습니다.
             # 산출물은 이미 다 썼으므로 여기서 멈춰도 이번 작업은 보존됩니다.
             self.fail(
                 "val 산출물이 하나도 없습니다 — 이 data.yaml 로 train.py 를 "
                 "돌리면 빈 검증셋으로 죽습니다.\n"
-                "  val_ratio > 0 인 소스를 처리해 val 을 만들어 두세요.\n"
-                "  (targets 로 일부만 굽는 중이었다면 먼저 전체를 한 번 처리해야 합니다. "
-                "이번에 만든 train 산출물은 그대로 유지됩니다.)"
+                "  val_ratio > 0 이나 val_sessions 로 val 을 만들어 두세요."
             )
         self.log("다음: python train.py --config <train.*.yaml>")
 
@@ -1090,14 +1119,13 @@ def main() -> None:
     )
     ap.add_argument(
         "--config", metavar="YAML",
-        help="설정 yaml (생략 시 --dataset 의 환경 설정). "
-             "일부 소스만 다시 구우려면 yaml 의 targets 키를 쓰세요",
+        help="설정 yaml (생략 시 --dataset 의 환경 설정)",
     )
     ap.add_argument("--dataset", choices=DATASETS, help="촬영 환경 (config 생략 시 기본 kimm)")
     ap.add_argument("--task", choices=("seg", "obb"),
                     help="yaml 의 task 를 덮어씀 (같은 소스로 obb 산출물을 따로 구울 때)")
     ap.add_argument("--out", metavar="DIR",
-                    help="yaml 의 out 을 덮어씀 (training/ 기준). 예: ../datasets/kimm/processed/obb")
+                    help="yaml 의 out 을 덮어씀 (training/ 기준). --task 만 주면 datasets/<환경>/processed_<task>")
     args = ap.parse_args()
     Preprocessor(args.config, task=args.task, out=args.out, dataset=args.dataset).run()
 

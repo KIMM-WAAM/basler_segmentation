@@ -1,0 +1,13 @@
+# 설치 구도 변화 대응. 좌우 반전은 비교 실험 대상.
+base: train.yaml
+source_crop:
+  enabled: true
+  offset_x: [-25, 25]
+  offset_y: [-25, 25]
+train:
+  degrees: 25.0
+  translate: 0.0  # 세션 원본 크롭 이동과 중복하지 않음
+  scale: 0.2
+  shear: 2.0
+  perspective: 0.0002
+  fliplr: 0.5

@@ -1,0 +1,13 @@
+# 원본에서 세션 크기 그대로 크롭. 세션 저장 위치 기준 ±25%p.
+base: train.yaml
+source_crop:
+  enabled: true
+  offset_x: [-25, 25]
+  offset_y: [-25, 25]
+train:
+  degrees: 5.0
+  translate: 0.0  # 원본 크롭 위치 이동과 중복하지 않음
+  scale: 0.1
+  shear: 0.1
+  perspective: 0.00005
+  fliplr: 0.0

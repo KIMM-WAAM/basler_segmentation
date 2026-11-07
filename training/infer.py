@@ -2,12 +2,12 @@
 학습한 모델로 추론 — 사진 한 장(크롭 → 예측 그림) 또는 세션 폴더(전 프레임 → 동영상).
 
     python infer.py --weights runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt \\
-                    --source ../datasets/kimm/raw/kimm_261019_161818/Mono/000100__cap_261019_161818.png
+                    --source ../datasets/kimm/raw/261019_161818/Mono/000100__cap_261019_161818.png
     python infer.py --weights runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt \\
-                    --source ../datasets/kimm/raw/kimm_261019_161818 --fps 5
+                    --source ../datasets/kimm/raw/261019_161818 --fps 5
 
 - 크롭은 학습 전처리와 같은 규약(preprocess.crop_rect: W×H 픽셀, 위치 0~100%).
-  --crop auto(기본)면 --dataset 환경의 crop, "none" 이면 크롭 안 함.
+  --crop auto(기본)면 세션 crop.yaml, 없으면 오류, "none" 이면 크롭 안 함.
 - 결과는 runs/<환경>/infer/<YYMMDD_HHMMSS>/ — 사진은 <이름>_pred.jpg, 세션은 <세션>.mp4.
 - 경로는 적은 그대로 먼저, 없으면 training/ 기준으로 찾는다. weights 는 타임스탬프를 뺀
   runs/<…>/<name>/weights/best.pt 로 적으면 그 name 의 최신 실행 (resolve_weights).
@@ -65,7 +65,7 @@ def main() -> None:
     ap.add_argument("--weights", required=True, help="best.pt (training/ 기준 또는 절대경로)")
     ap.add_argument("--dataset", choices=DATASETS, default="kimm", help="크롭 설정·결과 저장 환경")
     ap.add_argument("--source", required=True, help="사진 파일 또는 세션 폴더(datasets/<환경>/raw/<세션>)")
-    ap.add_argument("--crop", default="auto", help="'W H CX CY' / auto = 환경별 전처리 크롭 / none")
+    ap.add_argument("--crop", default="auto", help="'W H CX CY' / auto = 세션 크롭 (없으면 오류) / none")
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--max-det", type=int, help="최대 검출 수 (기본: 환경별 wire_count, KIMM 1 / BestFA 2)")
@@ -85,7 +85,8 @@ def main() -> None:
         check_source_dataset(source, args.dataset)
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
-    crop = parse_crop(args.crop, args.dataset)
+    crop = (default_crop(args.dataset, source) if not args.crop.strip() or args.crop.lower() == "auto"
+            else parse_crop(args.crop, args.dataset))
     files = frames_of(source)
     out = find(args.out) if args.out else HERE / "runs" / args.dataset / "infer" / run_stamp()
     out.mkdir(parents=True, exist_ok=True)

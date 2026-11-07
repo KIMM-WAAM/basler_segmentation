@@ -10,7 +10,9 @@
     weights/best.onnx  앱용 (출처 메타데이터 포함 — provenance.stamp_onnx)
     args.yaml      Ultralytics 학습 인자 전체
     results.csv    epoch 별 손실 · 점수
-    run_info.yaml  커밋 · 커밋 안 된 수정 · config · 데이터 장수 (없던 예전 실행은 .pt 의 git 정보)
+    run_info.yaml  커밋 · config · 데이터 manifest · 시작 가중치 · 환경 (없던 예전 실행은 .pt 의 git 정보)
+    config.yaml    재현용 config (uv run train.py --config 로 그대로 다시 돌릴 수 있음)
+    data/          학습 당시 manifest 사본 — 세션별 지문 + 파일 하나하나의 목록(.files.tsv)
     code.patch     학습 당시 커밋 안 된 수정이 있었으면
 
 runs/ 은 그대로 둔다 (복사) — infer · eval 의 '최신 실행' 찾기와 task 드롭다운이 runs/ 를 본다.
@@ -28,7 +30,8 @@ import provenance
 from common import HERE, resolve
 
 DEST = HERE.parent / "weights"
-FILES = ("weights/best.pt", "weights/last.pt", "weights/best.onnx", "args.yaml", "results.csv", provenance.PATCH)
+FILES = ("weights/best.pt", "weights/last.pt", "weights/best.onnx", "args.yaml", "results.csv", provenance.PATCH,
+         provenance.RUN_CONFIG)
 
 
 def main() -> None:
@@ -59,6 +62,8 @@ def main() -> None:
         if src.exists():
             (dest / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest / rel)
+    if (run / provenance.RUN_DATA).is_dir():
+        shutil.copytree(run / provenance.RUN_DATA, dest / provenance.RUN_DATA, dirs_exist_ok=True)
 
     info = provenance.read(best)
     (dest / provenance.RUN_INFO).write_text(yaml.safe_dump(info, allow_unicode=True, sort_keys=False),

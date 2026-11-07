@@ -11,11 +11,12 @@ raw/<source>/Mono/* 에 OBB 라벨(단일 클래스)을 붙이는 브라우저 �
 한 녹화 세션 안에서는 위치가 거의 같으므로, 1장 맞춰 "일괄 복사"로 그 세션의 나머지에
 뿌린 뒤 어긋난 장만 고쳐 저장하는 흐름을 가정합니다 (복사는 지금 이미지의 세션 안에서만).
 
-소스는 configs/preprocess.<환경>.yaml 의 소스 이름입니다. 그 path 가 글롭(`raw/kimm_*`)이면
+소스는 configs/preprocess.<환경>.yaml 의 소스 이름입니다. 그 path 가 글롭(`raw/[0-9]*`)이면
 앱 REC 세션 폴더 전부를 이어서 보여줍니다 (Source 참고). 산출물은 preprocess.py 가
 labels_seg 를 읽습니다. labels 는 수동 OBB 편집용으로 따로 보관합니다:
     <세션 폴더>/labels/<이미지이름>.txt   "0 x1 y1 x2 y2 x3 y3 x4 y4" (정규화 4점)
     <세션 폴더>/data.yaml                  없으면 해당 환경 설정의 최종 names 로 자동 생성
+    <세션 폴더>/session.yaml               없으면 id · env 만 채운 세션 명세 틀을 자동 생성
     <세션 폴더>/labels_seg/<이미지이름>.txt  와이어 폴리곤 "0 x1 y1 … xn yn" (compute edge 1 /
                                             OBB as edge 결과를 저장한 것 — labels/ 는 그대로)
 
@@ -50,16 +51,42 @@ REF_WIRE = REPO / "datasets" / "kimm" / "reference" / "reference_wire.png"
 
 sys.path.insert(0, str(TRAINING))
 from edge import find_tip, obb_pose  # noqa: E402 — 같은 폴더 (labeller/)
+from edge2 import find_tip2  # noqa: E402 — compute edge 2 (BestFA 용)
 from reference import red_wire_templates  # noqa: E402
 
 from common import raw_image_dir  # noqa: E402
-from dataset_paths import DATASETS, dataset_root, preprocess_config  # noqa: E402
+from dataset_paths import (  # noqa: E402
+    DATASETS,
+    SESSION_GLOB,
+    dataset_root,
+    ensure_session_meta,
+    preprocess_config,
+    session_crop,
+)
 from preprocess import min_area_rect  # noqa: E402 — training/ 를 path 에 넣은 뒤라야 import 됨
 
 IMG_EXTS = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
            ".bmp": "image/bmp", ".webp": "image/webp"}
 INDEX_HTML = HERE / "index.html"
 CROP_KEYS = ("enabled", "width", "height", "center_x", "center_y")
+# "완전히 검은 이미지" — 가장 밝은 픽셀이 이 값 이하 (0~255). 2026-11 KIMM·BestFA 원본에서 빈 프레임은
+# 전부 ≤ 10 이었고, 그다음 무리는 15 이상(어둡지만 장면이 있음)이라 그 사이로 잡았다.
+BLACK_MAX = 10
+
+
+def brightness(fp: Path) -> tuple[int, int]:
+    """(p99, 최댓값) 밝기 — JPEG 은 1/8 축소 디코딩으로 빠르게 (최댓값 판정에는 충분)."""
+    with Image.open(fp) as im:
+        im.draft("L", (max(1, im.width // 8), max(1, im.height // 8)))
+        g = im.convert("L")
+        hist = g.histogram()
+    total, acc, p99 = sum(hist), 0, 255
+    for v, c in enumerate(hist):
+        acc += c
+        if acc >= total * 0.99:
+            p99 = v
+            break
+    return p99, max(v for v, c in enumerate(hist) if c)
 
 
 # ── 기구부 오버레이 + 기준 와이어 ─────────────────────────────────────────────
@@ -210,7 +237,7 @@ class Source:
     라벨링 대상 소스 — 경로 · 클래스 정의 · crop 미리보기 설정.
 
     `--source` 는 configs/preprocess.kimm.yaml 의 소스 **이름**입니다. 그 소스의 path 가
-    글롭이면(앱 REC 는 녹화 세션마다 raw/kimm_YYMMDD_HHMMSS[_메모]/ 를 새로 만듭니다
+    글롭이면(앱 REC 는 녹화 세션마다 raw/YYMMDD_HHMMSS/ 를 새로 만듭니다
     — FrameRecorder) 매칭되는 세션 폴더 전부를 한 소스처럼 이어서 라벨링합니다.
     preprocess.py 의 source_dirs 와 같은 규약이라, 여기서 라벨한 것이 그대로
     전처리 대상이 됩니다.
@@ -219,7 +246,7 @@ class Source:
     앱 캡처 파일명(000001__cap_YYMMDD_HHMMSS.png)은 세션 타임스탬프가 들어가 전역으로
     유일하므로, 브라우저 API 는 파일명만 주고받고 소속 폴더는 서버가 기억합니다.
 
-    설정에 소스가 없으면 datasets/<환경>/raw/<환경>_* 를 읽습니다.
+    설정에 소스가 없으면 datasets/<환경>/raw/[0-9]* 를 읽습니다.
     """
 
     def __init__(self, name: str, config_path: Path | None = None) -> None:
@@ -238,6 +265,7 @@ class Source:
         for d in self.dirs:
             (d / "labels").mkdir(parents=True, exist_ok=True)
             self._ensure_data_yaml(d)
+            ensure_session_meta(d, self.cfg.get("dataset") or self.name, wire_count=self.wire_count)
             for p in sorted(raw_image_dir(d).iterdir()):
                 if p.suffix.lower() not in IMG_EXTS:
                     continue
@@ -262,7 +290,7 @@ class Source:
         글롭은 경로 마지막 칸에만, Mono/ 가 있는 폴더만 셉니다.
         """
         entry = self._source_entry() or {}
-        raw = str(entry.get("path") or (dataset_root(self.name) / "raw" / f"{self.name}_*"))
+        raw = str(entry.get("path") or (dataset_root(self.name) / "raw" / SESSION_GLOB))
         base = Path(raw)
         base = base if base.is_absolute() else (TRAINING / base)
 
@@ -294,31 +322,62 @@ class Source:
         dy.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False),
                       encoding="utf-8")
 
-    def crop_state(self) -> dict | None:
-        """
-        configs/preprocess.kimm.yaml 의 이 소스 crop — 라벨러가 앱처럼 W×H · 위치(%) 로
-        조절하고 save_crop() 으로 되돌려 씁니다. 창은 브라우저가 그림 — preprocess.py 의
-        crop_rect() 와 같은 공식을 JS 로 한 번 더 계산합니다 (그쪽 공식이 바뀌면
-        index.html 의 cropRect() 도 맞출 것). auto: 이미지마다 라벨에서 창을 잡는
-        모드라 고정 창이 없음. preprocess.kimm.yaml 에 없는 소스면 None.
-        """
+    def crop_state(self, name: str | None = None) -> dict | None:
+        """미설정 세션은 중앙 1280 크롭을 제안한다. 저장 전에는 미설정 상태다."""
         src = self._source_entry()
         if src is None:
             return None
-        crop = src.get("crop") or {}
-        return {"enabled": bool(crop.get("enabled")),
+        configured = name is not None and (self.dir_of(name) / "crop.yaml").is_file()
+        crop = session_crop(self.dir_of(name)) if configured else {
+            "enabled": True, "width": 1280, "height": 1280,
+            "center_x": 50, "center_y": 50,
+        }
+        return {"configured": configured, "enabled": bool(crop.get("enabled")),
                 "width": int(crop.get("width") or 0), "height": int(crop.get("height") or 0),
                 "center_x": float(crop.get("center_x", 50)),
                 "center_y": float(crop.get("center_y", 50)),
                 "auto": bool((crop.get("auto_crop") or {}).get("enabled"))}
 
     def save_crop(self, values: dict) -> dict:
-        """crop 을 preprocess.kimm.yaml 에 제자리 저장하고, 다시 읽은 상태를 돌려준다."""
-        if self._source_entry() is None:
-            raise ValueError(f"{self.config_path.name} 에 {self.name} 소스가 없어 크롭을 저장할 수 없습니다")
-        save_crop(self.config_path, self.name, values)
-        self.cfg = yaml.safe_load(self.config_path.read_text(encoding="utf-8")) or {}
-        return self.crop_state()
+        """현재 이미지가 속한 세션에 고정 크롭을 저장한다."""
+        name = safe_name(values.get("name", ""))
+        directory = self.dir_of(name)
+        crop = {"enabled": bool(values["enabled"]),
+                "width": int(values["width"]), "height": int(values["height"]),
+                "center_x": float(values["center_x"]), "center_y": float(values["center_y"]),
+                "auto_crop": {"enabled": False}}
+        if crop["width"] < 0 or crop["height"] < 0:
+            raise ValueError("크롭 크기는 0 이상이어야 합니다")
+        if not all(math.isfinite(crop[k]) and 0 <= crop[k] <= 100 for k in ("center_x", "center_y")):
+            raise ValueError("크롭 위치는 0~100%여야 합니다")
+        path = directory / "crop.yaml"
+        previous = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        previous = previous if isinstance(previous, dict) else {}
+        previous.update(crop)
+        crop = previous
+        path = directory / "crop.yaml"
+        temp = path.with_suffix(".yaml.tmp")
+        temp.write_text(yaml.safe_dump(crop, sort_keys=False), encoding="utf-8")
+        os.replace(temp, path)
+        return self.crop_state(name)
+
+    def read_seg(self, name: str) -> list:
+        path = self.seg_path(name)
+        if not path.exists():
+            return []
+        with Image.open(self.image_path(name)) as image:
+            width, height = image.size
+        polygons = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            values = line.split()
+            coords = [float(v) for v in values[1:]]
+            if len(coords) < 6 or len(coords) % 2 or not all(math.isfinite(v) for v in coords):
+                raise ValueError(f"잘못된 seg 라벨: {path.name}")
+            polygons.append([[coords[i] * width, coords[i + 1] * height]
+                             for i in range(0, len(coords), 2)])
+        return polygons
 
     def images(self) -> list:
         # 세션 폴더 순 → 그 안에서 파일명 순 (_owner 의 삽입 순서). 파일명으로만
@@ -376,13 +435,13 @@ class Source:
             return
         p.write_text("".join(lines), encoding="utf-8")
 
-    def delete_image(self, name: str) -> Path:
+    def delete_image(self, name: str, bin_name: str = "_removed_manual") -> Path:
         """
-        이미지 + 짝 라벨(labels/, labels_seg/)을 <raw>/_removed_manual/<세션>/ 으로 옮긴다 —
-        글롭(kimm_*)에 안 걸려 라벨러·전처리에서 바로 빠지고, 잘못 지웠으면 되돌릴 수 있음.
+        이미지 + 짝 라벨(labels/, labels_seg/)을 <raw>/<bin_name>/<세션>/ 으로 옮긴다 —
+        글롭([0-9]*)에 안 걸려 라벨러·전처리에서 바로 빠지고, 잘못 지웠으면 되돌릴 수 있음.
         """
         d = self.dir_of(name)
-        trash = d.parent / "_removed_manual" / d.name
+        trash = d.parent / bin_name / d.name
         stem = Path(name).stem
         for sub, fname in ((raw_image_dir(d).name, name), ("labels", stem + ".txt"),
                            ("labels_seg", stem + ".txt")):
@@ -392,6 +451,38 @@ class Source:
                 os.replace(src, trash / sub / fname)
         del self._owner[name]
         return trash
+
+    def find_black(self, names: list | None = None) -> list:
+        """
+        완전히 검은 이미지 (가장 밝은 픽셀 ≤ BLACK_MAX) — [(이름, p99, max)]. 카메라가 노출 전·셔터
+        닫힘으로 남긴 빈 프레임. 이미지가 많아 스레드로 나눠 읽는다 (PIL 디코딩은 GIL 을 놓음).
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        names = list(names if names is not None else self.images())
+        with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4))) as ex:
+            stats = list(ex.map(lambda n: brightness(self.image_path(n)), names))
+        return [(n, p99, mx) for n, (p99, mx) in zip(names, stats) if mx <= BLACK_MAX]
+
+    def remove_black(self, names: list | None = None) -> list:
+        """
+        find_black 결과를 <raw>/_removed_black/<세션>/ 으로 옮기고 _removed_black/manifest.csv 에
+        한 줄씩 남긴다 (예전 정리와 같은 형식: session,image,p99,label). 옮긴 [(세션, 이름)].
+        """
+        moved = []
+        for name, p99, _ in self.find_black(names):
+            d = self.dir_of(name)
+            label = d / "labels" / (Path(name).stem + ".txt")
+            label_rel = f"{d.name}\\labels\\{label.name}" if label.exists() else ""
+            trash = self.delete_image(name, "_removed_black")
+            manifest = trash.parent / "manifest.csv"
+            new = not manifest.exists()
+            with manifest.open("a", encoding="utf-8", newline="") as f:
+                if new:
+                    f.write("session,image,p99,label\n")
+                f.write(f"{d.name},{name},{p99},{label_rel}\n")
+            moved.append((d.name, name))
+        return moved
 
     def seg_path(self, name: str) -> Path:
         """seg 폴리곤 라벨 — 손으로 잡은 OBB(labels/) 와 따로 둔다."""
@@ -437,6 +528,11 @@ def body_instances(body: dict) -> list:
             raise ValueError("instances 는 목록이어야 합니다")
         return instances
     return [body["points"]] if body.get("points") else []
+
+
+def wire_center_x(points: list) -> float:
+    """와이어 순서 = 박스 중심 x (왼쪽이 1번) — 라벨러·앱 표시 순서와 같은 기준."""
+    return sum(x for x, _ in points) / len(points)
 
 
 def safe_name(raw: str) -> str:
@@ -549,20 +645,28 @@ def make_handler(source: Source | None = None, ref: dict | None = None, *, defau
                                             "labeled": source.label_path(n).exists(),
                                             "seg": source.seg_path(n).exists()}
                                            for n in source.images()]})
+                elif path == "/api/crop":
+                    name = safe_name(query.get("name", [""])[0])
+                    self._json({"crop": source.crop_state(name)})
+                elif path == "/api/seg":
+                    name = safe_name(query.get("name", [""])[0])
+                    self._json({"polygons": source.read_seg(name)})
                 elif path == "/api/label":
                     name = safe_name(query.get("name", [""])[0])
                     instances = source.read_labels(name)
                     self._json({"instances": instances, "points": instances[0] if instances else None})
                 elif path == "/api/edge":
                     # 와이어 폴리곤 — method=1: 저장된 OBB 의 윗변·옆변 + 영상에서 찾은 끝
-                    # (edge.find_tip, "compute edge 1"), method=obb: OBB 4점을 그대로
+                    # (edge.find_tip, "compute edge 1"), method=2: 끝 둘레를 직접 따는 BestFA 용
+                    # (edge2.find_tip2, "compute edge 2"), method=obb: OBB 4점을 그대로
                     name = safe_name(query.get("name", [""])[0])
                     method = query.get("method", ["1"])[0]
-                    instances = source.read_labels(name)
+                    # 와이어 1 = 왼쪽 — "와이어 1: ok · 와이어 2: low" 표시가 화면 번호와 맞게
+                    instances = sorted(source.read_labels(name), key=wire_center_x)
                     fp = source.image_path(name)
                     if not instances:
                         self._json({"status": "no_label", "method": method})
-                    elif method in ("obb", "1"):
+                    elif method in ("obb", "1", "2"):
                         with Image.open(fp) as im:
                             w, h = im.size
                         results = []
@@ -570,6 +674,8 @@ def make_handler(source: Source | None = None, ref: dict | None = None, *, defau
                             if method == "obb":
                                 result = {"status": "ok", "edges": [],
                                           "polygon": [[x * w, y * h] for x, y in points]}
+                            elif method == "2":
+                                result = find_tip2(fp, points)
                             else:
                                 result = find_tip(fp, points)
                             results.append(result)
@@ -611,6 +717,16 @@ def make_handler(source: Source | None = None, ref: dict | None = None, *, defau
                     for points in instances:
                         validate_polygon(points, 4, exact=True)
                     overwrite = bool(body.get("overwrite"))
+                    # wire: 와이어 하나만 복사 (0부터, 왼쪽부터 센 번호) — 대상 이미지의 그 와이어만
+                    # 바꾸고 나머지 와이어는 그대로. 와이어가 다 갖춰지지 않은 대상(라벨 없음 등)은
+                    # 한 와이어만 쓰면 반쪽 라벨이 되므로 지금 이미지의 와이어 전부를 쓴다.
+                    wire = body.get("wire")
+                    if wire is not None:
+                        wire = int(wire)
+                        if not (0 <= wire < len(instances) == source.wire_count):
+                            raise ValueError(f"와이어 번호 {wire + 1} 이(가) 맞지 않습니다 "
+                                             f"(이 환경 와이어 {source.wire_count}개).")
+                        instances = sorted(instances, key=wire_center_x)
                     # 복사 범위는 지금 보고 있는 이미지의 세션 폴더 안으로 한정 —
                     # "타깃 위치가 거의 같다"는 전제는 한 녹화 세션 안에서만 성립합니다
                     # (세션마다 장면·지그가 다름). 소스가 폴더 하나면 기존과 같습니다.
@@ -625,21 +741,45 @@ def make_handler(source: Source | None = None, ref: dict | None = None, *, defau
                         lo, hi = min(i, j), max(i, j) + 1
                     elif body.get("from_here"):
                         lo = names.index(current)
-                    written, skipped = [], 0
+                    written, skipped, filled = [], 0, 0
                     for n in names[lo:hi]:
                         if source.dir_of(n) != here:
                             continue
                         if not overwrite and source.label_path(n).exists():
                             skipped += 1
                             continue
-                        source.write_labels(n, instances)
+                        out = instances
+                        if wire is not None:
+                            existing = source.read_labels(n)
+                            if len(existing) == source.wire_count:
+                                out = sorted(existing, key=wire_center_x)
+                                out[wire] = instances[wire]
+                            else:
+                                filled += 1
+                        source.write_labels(n, out)
                         written.append(n)
                     # names: 실제로 OBB 가 바뀐 장 — 라벨러가 이 장들만 경계를 다시 계산
+                    # filled: 와이어 하나만 복사하려 했지만 라벨이 다 없어서 전부 쓴 장 수
                     self._json({"ok": True, "written": len(written), "skipped": skipped,
-                                "names": written})
+                                "filled": filled, "names": written})
                 elif url.path == "/api/delete":
                     trash = source.delete_image(safe_name(self._body().get("name", "")))
                     self._json({"ok": True, "moved_to": str(trash)})
+                elif url.path == "/api/black":
+                    # {"apply": false} → 검은 이미지 목록만 (세션별 장수) / {"apply": true, "names": […]}
+                    # → 그 장들을 다시 확인한 뒤 _removed_black/ 으로 (목록과 실제가 어긋나지 않게)
+                    body = self._body()
+                    if body.get("apply"):
+                        names = [safe_name(n) for n in body.get("names") or []]
+                        moved = source.remove_black([n for n in names if n in source._owner])
+                        self._json({"ok": True, "moved": len(moved), "names": [n for _, n in moved]})
+                    else:
+                        found = source.find_black()
+                        per: dict = {}
+                        for n, _, _ in found:
+                            per[source.dir_of(n).name] = per.get(source.dir_of(n).name, 0) + 1
+                        self._json({"ok": True, "threshold": BLACK_MAX, "names": [n for n, _, _ in found],
+                                    "sessions": per, "total": len(source.images())})
                 elif url.path == "/api/seg":
                     # {"items": [{"name", "polygon": [[x, y], …] (이미지 px)}, …]} → labels_seg/
                     items = self._body().get("items") or []

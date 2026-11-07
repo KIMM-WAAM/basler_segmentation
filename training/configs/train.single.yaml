@@ -1,18 +1,11 @@
+# KIMM seg 학습: train으로 학습, val로 best 선택. 평가 후 배포 가능.
 dataset: kimm
-# yolo26s-seg 파인튜닝 — 측정용 (val/test 세션을 떼어 둔 버전).
-#   python train.py --config train.single.yaml
-# 공통 설정(증강·export·overlay)은 base/train.yaml — 여기는 이 실행만의 값.
-# 데이터셋 정의(소스·분할·크롭)는 preprocess.kimm.yaml 이 소유하며, 그 산출물을 data 로 가리킵니다.
-# 배포용(전체 데이터) 학습은 train.seg_all.yaml / train.obb_all.yaml.
-base: base/train.yaml
+base: base/kimm.yaml
 
 train:
-  model: yolo26s-seg.pt      # 시작 가중치 — 앱이 seg 모델로 추론. 없으면 Ultralytics가 자동 다운로드
-  data: ../datasets/kimm/processed/seg/data.yaml   # preprocess.py 산출물 (val/test = preprocess.kimm.yaml 의 세션)
-  epochs: 500                # 상한 — 실제 종료는 아래 patience 의 early stopping
-  patience: 50               # val(떼어 둔 세션) 지표가 이만큼 epoch 동안 안 나아지면 멈춤 — 과적합 방지.
-                             # 여기서 나온 best epoch 를 train.*_all.yaml 의 epochs 로 씀
-  project: runs/kimm/segment      # 결과 저장 루트 (training/ 기준)
-  name: yolo26s-seg-finetune # 실제 저장 위치: runs/kimm/segment/<name>/<YYMMDD_HHMMSS>/
-
-# 측정용 — 앱에는 train.seg_all 결과를 보관(archive.py)해서 weights/deploy.yaml 로 고른다.
+  model: yolo26s-seg.pt
+  data: ../datasets/kimm/processed_seg/data.yaml
+  epochs: 500
+  patience: 50
+  project: runs/kimm/segment
+  name: yolo26s-seg-finetune

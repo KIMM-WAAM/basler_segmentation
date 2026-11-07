@@ -13,11 +13,12 @@ description = "yolo26s-seg 파인튜닝 파이프라인 + OBB 라벨러"
 # 3.14/3.15 에서는 소스 빌드(MSVC 필요)로 떨어진다. .python-version 으로 3.12 고정.
 requires-python = ">=3.10,<3.14"
 
-# 코어 — 라벨러(labeller/server.py)와 preprocess · tests 가 쓰는 것만.
+# 코어 — 라벨러(labeller/server.py)와 preprocess 가 쓰는 것만.
 # torch 를 코어에 넣으면 라벨링만 하려는 머신에서도 수 GB 를 끌어온다 → extra 로 분리.
 dependencies = [
     "pyyaml>=6.0",   # *_config.yaml 로드 (ultralytics 의존성이지만 명시)
-    "pillow>=10.0",  # 크롭/리사이즈/미리보기 — preprocess.py, 라벨러, tests
+    "pillow>=10.0",  # 크롭/리사이즈/미리보기 — preprocess.py, 라벨러
+    "tqdm>=4.66",   # 전처리 진행률·처리 속도·남은 시간
 ]
 
 [project.optional-dependencies]

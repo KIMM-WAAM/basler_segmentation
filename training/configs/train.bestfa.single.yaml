@@ -1,10 +1,10 @@
-# BestFA 전용 학습. KIMM 데이터·학습 결과와 분리.
-base: base/train.yaml
+# BestFA seg 학습: train으로 학습, val로 best 선택. 평가 후 배포 가능.
+base: base/bestfa.yaml
 dataset: bestfa
 
 train:
   model: yolo26s-seg.pt
-  data: ../datasets/bestfa/processed/seg/bestfa/data.yaml
+  data: ../datasets/bestfa/processed_seg/data.yaml
   epochs: 500
   patience: 50
   project: runs/bestfa/segment

@@ -30,8 +30,8 @@ public partial class App : Application
                 var root = XDocument.Load(ConfigPath).Root;
                 if (root?.Name != "Config") throw new InvalidDataException("Invalid capture profile");
                 string expected = e.Args[datasetIndex + 1].ToLowerInvariant();
-                if (CameraConfig.Load(ConfigPath).RecordSessionPrefix != expected)
-                    throw new InvalidDataException("Capture profile has a different session prefix");
+                if (CameraConfig.Load(ConfigPath).CaptureEnvironment != expected)
+                    throw new InvalidDataException("Capture profile belongs to a different environment");
             }
             catch (Exception ex)
             {

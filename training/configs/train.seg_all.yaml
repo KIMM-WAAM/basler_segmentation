@@ -1,18 +1,12 @@
+# KIMM 배포용: train+val+test 전체 학습.
+# epochs는 기존 값. 실행 전 학습 길이를 결정할 것; val 점수는 독립 평가가 아님.
+base: base/kimm.yaml
 dataset: kimm
-# yolo26s-seg 파인튜닝 — 배포용 (실시간 추론). 라벨된 데이터를 전부(train+val+test) 학습.
-#   python train.py --config train.seg_all.yaml
-# 성능 측정은 train.single.yaml(같은 증강·같은 데이터, val/test 를 뗀 버전)로 하고, 이건 그
-# 설정으로 확인한 뒤 데이터를 다 넣어 다시 학습하는 것. val 은 train 과 겹치므로 지표는
-# 낙관적이고 early stopping 이 과적합을 못 잡음 → 대신 epochs 를 train.single(진짜 val 로
-# early stopping 한 실행)의 best epoch 로 고정한다 — 과적합 직전까지만 학습.
-base: base/train.yaml
 
 train:
   model: yolo26s-seg.pt
-  data: ../datasets/kimm/processed/seg/kimm/data.all.yaml   # preprocess.py 가 쓰는 전체 데이터 버전
-  epochs: 15                # ← train.single 의 best epoch 로 바꿀 것 (끝나면 채움)
-  patience: 0                # 0 = EarlyStopping 끔 (val 이 train 과 겹쳐 의미 없음)
+  data: ../datasets/kimm/processed_seg/data.all.yaml
+  epochs: 15
+  patience: 0
   project: runs/kimm/segment
-  name: yolo26s-seg-all      # runs/kimm/segment/yolo26s-seg-all/<YYMMDD_HHMMSS>/
-
-# 앱 배포: archive.py 로 weights/ 에 보관 → weights/deploy.yaml 의 yolo26s-seg.onnx 줄에서 고름.
+  name: yolo26s-seg-all

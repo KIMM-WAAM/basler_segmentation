@@ -1,72 +1,51 @@
-# 학습 config 공통 — configs/train.*.yaml 이 `base: base/train.yaml` 로 상속한다.
-# 각 config 에는 이것과 다른 것(모델·데이터·epoch·early stop·결과 이름·배포 위치)만 적는다.
-# 상속 규칙(common.load_yaml): dict 는 키별로 덮어쓰고, 리스트·값은 통째로 교체.
-# 이 파일은 configs/ 하위 폴더라 train.py 의 config 후보(train.*.yaml)에 잡히지 않는다.
-
-# 무엇을 돌릴지 — 키를 오타내면 오류로 알려줍니다. 재학습 없이 export 만: train: false
+# 공통 학습 옵션. 모델·데이터·학습 길이는 train.*.yaml에서 지정.
 stages:
-  preview_aug: false         # 증강이 어떻게 먹는지 먼저 눈으로 볼 때만 true
+  preview_aug: false
   train: true
   export: true
 
 train:
-  imgsz: 640                 # 앱이 640으로 추론 → 640 유지
-  batch: -1                  # -1 = GPU 메모리에 맞춰 AutoBatch. 정수로 고정 가능
-  device: "0"                # GPU 인덱스. 예: "0" 또는 "0,1", CPU는 "cpu"
+  imgsz: 640
+  batch: -1  # -1: GPU 메모리에 맞춘 자동 배치
+  device: "0"  # GPU 인덱스 또는 cpu
   workers: 8
-  resume: false              # true면 마지막 체크포인트에서 이어서
+  resume: false
   optimizer: auto
   cos_lr: true
   seed: 0
-  save_period: 50            # best.pt · last.pt 외에 50 epoch 마다 weights/epoch0·50·100….pt 도 남김
+  save_period: 5  # 체크포인트 저장 간격 (epoch)
 
-  # ── 증강 (Ultralytics 온라인 증강) ────────────────────────────────────
-  # 카메라가 기구에 붙어(eye-in-hand) 와이어의 각도·크기·좌우가 거의 고정 — 실제로 생기는
-  # 변화(조금 밀림·휨·아크 밝기·살짝 흐림)만 흔든다. 값을 바꾸면 preview_aug 로 확인.
-  hsv_h: 0.0                 # 흑백 카메라라 색상/채도 증강은 의미 없음
+  hsv_h: 0.0
   hsv_s: 0.0
-  hsv_v: 0.0                 # 밝기는 아래 brightness 로 — hsv_v 는 1±v 라 최대 0~2배까지만 됨
-  degrees: 10.0              # 회전(도) — 라벨 7,667장의 와이어 축은 중앙값(69°)에서 p90 5° · p99 7°
-                             # 안쪽. 그보다 조금 넓게.
-  translate: 0.1             # 이동 ±비율 — 앱 크롭 위치(40%)와 학습 크롭(50%) 차이(약 9%·6%)도 덮음
-  scale: 0.2                 # 확대/축소 ±비율 — 와이어 크기는 거의 고정
-  shear: 2.0                 # 기울이기(도) — x·y 각각 ±. 토치·와이어가 살짝 비스듬히 보이는 정도
-  perspective: 0.0002        # 원근 — 640 px 기준 계수. 화면 끝에서 크기 약 ±6% (카메라가 살짝
-                             # 기운 정도). Ultralytics 권장 범위 0–0.001
-  flipud: 0.0                # 위아래 뒤집기 — 실제로 없는 장면
-  fliplr: 0.0                # 좌우 뒤집기 — 와이어가 반대로 기운 장면은 실제로 없음
-  mosaic: 0.0                # 끔 — 4장을 2×2 로 이어 붙이는 증강. 고정 카메라라 실제로는 없는
-                             # 장면(칸 경계에서 잘린 와이어 · 축소된 화면)만 만든다
-  close_mosaic: 0            # mosaic 을 안 쓰므로 의미 없음
+  hsv_v: 0.0
+  # 환경별 기하 증강은 kimm.yaml / bestfa.yaml에서 지정.
+  flipud: 0.0
+  mosaic: 0.0
+  close_mosaic: 0
   mixup: 0.0
   copy_paste: 0.0
-  # 아래 둘은 Ultralytics 키가 아니다 — augment.py 가 albumentations 변환으로 바꿔 넘김
-  brightness:                # 밝기 배율 — 아크 글레어 편차가 큼
-    p: 1.0                   # 적용 확률
-    gain: [0.25, 4.0]        # 로그 균등: ±2 stop, 중앙값 1배 (어두운 쪽·밝은 쪽 반반)
-  blur:                      # 초점 흐림 (GaussianBlur)
-    p: 0.2                   # 적용 확률
-    sigma: [1.0, 3.0]        # 가우시안 sigma 범위 (학습 해상도 640 기준 px)
+  brightness:  # 사용자 증강: 밝기 배율 (로그 균등)
+    p: 0.8
+    gain: [0.5, 2.0]
+  gamma:  # 사용자 증강: 감마 배율 (로그 균등)
+    p: 0.8
+    gain: [0.5, 2.0]
+  blur:  # 사용자 증강: Gaussian sigma (px)
+    p: 0.2
+    sigma: [1.0, 3.0]
 
-# 매 val 마다 원본 4장 + 증강 12장(값 표시) 추론 격자 → <실행 폴더>/overlays/epoch_NNN.jpg
-# 와 TensorBoard Images 탭. 증강 범위는 위 train 블록 값을 그대로 씀 (epoch_overlay.py).
 overlay:
   enabled: true
 
 export:
   format: onnx
-  opset: 12                  # YoloDotNet(ONNX Runtime) 호환
-  nms: false                 # YOLO26 의 NMS 없는 end-to-end 헤드로 (출력 [1, 300, 38]) — 앱의
-                             # YoloDotNet V26 모듈은 이 형식만 읽는다. 기본값(None)은 NMS 전
-                             # 날것 출력 [1, 37, 8400] 이라 앱에서 IndexOutOfRange 로 죽는다
+  opset: 12
+  nms: false  # 앱의 YOLO26 추론 형식에 맞춤
   simplify: true
-  half: false                # FP16 export. 런타임이 지원할 때만 true
+  half: false
   dynamic: false
-  # 앱 배포는 여기서 하지 않는다 — export 는 runs/ 의 실행 폴더에 best.onnx 를 만들 뿐.
-  # 앱에 쓰려면 archive.py 로 저장소 루트 weights/ 에 보관하고 weights/deploy.yaml 에서 고른다.
 
-# stages.preview_aug 설정. 실제 학습 결과(runs/)와 섞이지 않게 따로 나갑니다.
 preview:
   project: runs/preview
   name: aug
-  fraction: 0.1              # 미리보기용으로 학습셋의 일부만 사용 (빨리 끝내려고)
+  fraction: 0.1

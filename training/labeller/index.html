@@ -2,221 +2,319 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { color-scheme: dark; }
+  /* 패널 색 = 캔버스에 그려지는 색 — 무엇을 만지는 패널인지 화면과 바로 짝지어지게 */
+  :root {
+    color-scheme: dark;
+    --bg: #14161b; --panel: #1b1e25; --line: #2c313b; --text: #e6e6e6; --dim: #9aa0aa; --faint: #6f7580;
+    --nav: #6fb0ff;     /* 필름의 현재 칸 테두리 */
+    --wire: #ffd24f;    /* 선택된 와이어 박스 */
+    --seg: #5ad1ff;     /* seg 폴리곤 */
+    --save: #7ae0b2;    /* 저장된 라벨 */
+    --copy: #ff9f40;    /* 길이 손잡이 — 일괄 작업 */
+    --crop: #ff3b30;    /* 크롭 창 */
+    --clean: #e08a8a;
+    --ok: #3c8a63; --danger: #c05050;
+  }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 16px; background: #16181d; color: #e6e6e6;
-    font: 14px/1.5 -apple-system, "Segoe UI", sans-serif;
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, "Segoe UI", sans-serif;
   }
-  h1 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
-  #meta { color: #9aa0aa; margin-bottom: 12px; }
-  #meta b { color: #e6e6e6; }
-  .layout { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
-  #stage { position: relative; line-height: 0; background: #000; border: 1px solid #333; }
+
+  /* ── 위쪽 고정 막대: 환경 · 세션 이동 · 상태 ── */
+  .topbar {
+    position: sticky; top: 0; z-index: 5; background: #101217ee; backdrop-filter: blur(4px);
+    border-bottom: 1px solid var(--line); padding: 8px 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px;
+  }
+  .topbar h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .tb-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .tb-nav { border-left: 3px solid var(--nav); padding-left: 10px; }
+  #meta { color: var(--dim); font-size: 12px; }
+  #meta b { color: var(--text); font-weight: 500; }
+  #session { min-width: 260px; max-width: 420px; }
+  #pos { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #pos b { color: var(--text); font-weight: 500; }
+  #status { flex: 1 1 280px; min-height: 20px; color: #8fd08f; font-size: 13px; text-align: right; }
+  #status.err { color: #e08a8a; }
+
+  /* ── 본문: 왼쪽 캔버스 + 필름, 오른쪽 패널 격자 ── */
+  .layout { display: flex; gap: 16px; align-items: flex-start; padding: 12px 16px 16px; flex-wrap: wrap; }
+  #stage { position: relative; line-height: 0; background: #000; border: 1px solid var(--line); }
   #stage canvas { display: block; cursor: crosshair; touch-action: none; }
-  #side { min-width: 300px; flex: 1; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+  /* 화면 아래에 고정 — 위로 키우면 이미지의 아래쪽을 덮는다 (위쪽은 그대로 보이게) */
+  #film-wrap {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+    padding: 2px 16px 8px; background: #101217f2; border-top: 1px solid var(--line);
+    color: var(--faint); font-size: 12px;
+  }
+  body { padding-bottom: var(--film-h, 0px); }  /* 스크롤하면 가려진 아래쪽도 볼 수 있게 */
+  #film { display: flex; flex-wrap: wrap; gap: 3px; max-height: 150px; overflow-y: auto; margin-top: 4px; }
+  /* 위로 끌면 목록 칸이 커진다 — 더블클릭 = 기본 높이 */
+  #film-grip {
+    height: 10px; margin: 0 0 4px; cursor: ns-resize; touch-action: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #film-grip::before { content: ""; width: 48px; height: 4px; border-radius: 2px; background: var(--line); }
+  #film-grip:hover::before, #film-grip.dragging::before { background: var(--nav); }
+  .cell {
+    width: 26px; height: 22px; font-size: 10px; display: flex; align-items: center;
+    justify-content: center; border-radius: 3px; border: 1px solid #333; cursor: pointer;
+    background: #2a2d34; color: var(--dim);
+  }
+  .cell.labeled { background: #2f6f4f; color: #d8f5e2; border-color: #3c8a63; }
+  .cell.current { outline: 2px solid var(--nav); }
+  /* 경계 계산 결과 — 칸 아래 줄 색: ok / 신뢰 낮음 / 못 찾음 */
+  .cell.e-ok { box-shadow: inset 0 -3px 0 var(--seg); }
+  .cell.e-low { box-shadow: inset 0 -3px 0 #f0c26a; }
+  .cell.e-none { box-shadow: inset 0 -3px 0 #e05050; }
+
+  /* 오른쪽은 화면을 따라오고(캔버스가 길어도 버튼이 보이게), 넓으면 패널이 두 줄로 */
+  #side {
+    flex: 1 1 340px; min-width: 320px;
+    position: sticky; top: 60px; max-height: calc(100vh - 72px - var(--film-h, 0px)); overflow-y: auto; padding-right: 2px;
+  }
+  /* 단 나눔(위→아래로 채움) — 패널 높이가 제각각이라 격자처럼 줄을 맞추면 빈칸이 생긴다 */
+  .panels { columns: 330px 2; column-gap: 10px; }
+  fieldset {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent, var(--line)); border-radius: 6px;
+    margin: 0 0 10px; padding: 8px 10px 10px; background: var(--panel); min-width: 0;
+    break-inside: avoid;
+  }
+  fieldset:disabled { opacity: .5; }
+  legend { color: var(--accent, var(--dim)); padding: 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+  .p-wire { --accent: var(--wire); }
+  .p-save { --accent: var(--save); }
+  .p-seg { --accent: var(--seg); }
+  .p-copy { --accent: var(--copy); }
+  .p-crop { --accent: var(--crop); }
+  .p-clean { --accent: var(--clean); }
+  .hint { color: var(--faint); font-size: 11px; margin: -2px 0 6px; }
+  body:not(.multi) .multi-wire { display: none; }   /* 와이어 1개 환경(KIMM)에선 숨김 */
+  /* 붙어 있는 토글 버튼 묶음 — 와이어 고르기 */
+  .seg-btns { display: inline-flex; }
+  .seg-btns button { border-radius: 0; margin-left: -1px; padding: 5px 12px; }
+  .seg-btns button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg-btns button:last-child { border-radius: 0 6px 6px 0; }
+  .seg-btns button.on { background: #4a3f17; border-color: var(--wire); color: var(--wire); position: relative; }
+  .p-copy .seg-btns button.on { background: #4a3017; border-color: var(--copy); color: var(--copy); }
+  .p-seg .seg-btns button.on { background: #173f4a; border-color: var(--seg); color: var(--seg); }
+
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
   .row:last-child { margin-bottom: 0; }
+  .lbl { color: var(--dim); font-size: 12px; min-width: 96px; }
   button {
-    background: #262a33; color: #e6e6e6; border: 1px solid #3a3f4b; border-radius: 6px;
-    padding: 7px 12px; cursor: pointer; font-size: 13px;
+    background: #262a33; color: var(--text); border: 1px solid #3a3f4b; border-radius: 6px;
+    padding: 6px 11px; cursor: pointer; font-size: 13px;
   }
   button:hover { background: #303541; }
   button:disabled { opacity: .4; cursor: default; }
-  button.primary { background: #2f6f4f; border-color: #3c8a63; }
+  button.primary { background: #2f6f4f; border-color: var(--ok); }
   button.primary:hover { background: #37835d; }
-  button.danger { background: #6f2f2f; border-color: #8a3c3c; }
-  button.danger:hover { background: #833737; }
-  #status { min-height: 20px; color: #8fd08f; font-size: 13px; margin-bottom: 8px; }
-  #status.err { color: #e08a8a; }
+  /* 지우기·덮어쓰기는 테두리만 빨갛게 — 화면이 빨간 버튼으로 뒤덮이지 않게, 누를 때만 채움 */
+  button.danger { background: transparent; border-color: var(--danger); color: #f0a0a0; }
+  button.danger:hover { background: #6f2f2f; color: var(--text); }
   .warn {
     display: none; background: #4a3411; border: 1px solid #8a6a2c; border-radius: 6px;
     color: #f0c26a; padding: 7px 10px; font-size: 12px; margin-bottom: 10px;
   }
   .warn.on { display: block; }
-  fieldset { border: 1px solid #333; border-radius: 6px; margin: 0 0 12px; padding: 8px 10px; }
-  fieldset:disabled { opacity: .5; }
-  legend { color: #9aa0aa; padding: 0 4px; font-size: 12px; }
-  #film { display: flex; flex-wrap: wrap; gap: 3px; max-height: 260px; overflow-y: auto; }
-  .cell {
-    width: 26px; height: 22px; font-size: 10px; display: flex; align-items: center;
-    justify-content: center; border-radius: 3px; border: 1px solid #333; cursor: pointer;
-    background: #2a2d34; color: #9aa0aa;
-  }
-  .cell.labeled { background: #2f6f4f; color: #d8f5e2; border-color: #3c8a63; }
-  .cell.current { outline: 2px solid #6fb0ff; }
-  /* 경계 계산 결과 — 칸 아래 줄 색: ok / 신뢰 낮음 / 못 찾음 */
-  .cell.e-ok { box-shadow: inset 0 -3px 0 #5ad1ff; }
-  .cell.e-low { box-shadow: inset 0 -3px 0 #f0c26a; }
-  .cell.e-none { box-shadow: inset 0 -3px 0 #e05050; }
-  .help { color: #6f7580; font-size: 12px; margin-top: 10px; }
+  details.help { color: var(--faint); font-size: 12px; margin-top: 10px; }
+  details.help summary { cursor: pointer; color: var(--dim); }
+  details.help div { margin-top: 6px; }
   kbd {
     background: #262a33; border: 1px solid #3a3f4b; border-radius: 3px; padding: 1px 5px;
     font-family: inherit;
   }
   input[type=number] {
-    background: #262a33; color: #e6e6e6; border: 1px solid #3a3f4b; border-radius: 6px;
-    padding: 5px 8px; width: 76px; font-size: 13px; text-align: right;
+    background: #262a33; color: var(--text); border: 1px solid #3a3f4b; border-radius: 6px;
+    padding: 4px 8px; width: 72px; font-size: 13px; text-align: right;
   }
-  input[type=range] { width: 150px; }
+  input[type=range] { flex: 1; min-width: 70px; accent-color: var(--crop); }
   select {
-    background: #262a33; color: #e6e6e6; border: 1px solid #3a3f4b; border-radius: 6px;
-    padding: 5px 8px; font-size: 13px;
+    background: #262a33; color: var(--text); border: 1px solid #3a3f4b; border-radius: 6px;
+    padding: 4px 8px; font-size: 13px;
   }
-  #session { flex: 1; min-width: 0; width: 100%; }
-  .unit { color: #9aa0aa; font-size: 12px; }
-  .val { display: inline-block; width: 42px; color: #e6e6e6; font-size: 13px; }
-  .unsaved { color: #f0c26a; font-size: 12px; }
-  #pose { color: #9aa0aa; font-size: 12px; font-variant-numeric: tabular-nums; }
-  #pose b { color: #e6e6e6; font-weight: 500; }
+  .unit { color: var(--dim); font-size: 12px; }
+  .val { display: inline-block; width: 42px; color: var(--text); font-size: 13px; }
+  .unsaved { color: #f0c26a; font-size: 12px; font-weight: 400; }
+  #pose { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  #pose b { color: var(--text); font-weight: 500; }
 </style>
 
-<h1>OBB 라벨러</h1>
-<div class="row">
-  <label for="preset">프리셋</label>
-  <select id="preset" disabled aria-label="촬영 환경 프리셋"></select>
-  <span class="unit">KIMM · 와이어 1개 / BestFA · 와이어 2개</span>
-</div>
-<div id="meta">
-  소스: <b id="m-source">-</b> · 클래스: <b id="m-class">-</b> ·
-  소스 전체 라벨됨 <b id="m-all">-</b>
-</div>
+<header class="topbar">
+  <div class="tb-group">
+    <h1>OBB 라벨러</h1>
+    <select id="preset" disabled aria-label="촬영 환경 프리셋" title="KIMM · 와이어 1개 / BestFA · 와이어 2개"></select>
+    <span id="meta">소스 <b id="m-source">-</b> · 클래스 <b id="m-class">-</b> · 전체 라벨됨 <b id="m-all">-</b></span>
+  </div>
+  <div class="tb-group tb-nav" title="목록 · 이전/다음 · 일괄 복사는 고른 세션 안에서만">
+    <select id="session" aria-label="세션"></select>
+    <button id="prev" title="←">◀</button>
+    <span id="pos"><b id="m-idx">-</b> / <b id="m-total">-</b> · 라벨됨 <b id="m-labeled">-</b></span>
+    <button id="next" title="→">▶</button>
+    <label class="unit"><input id="ref-on" type="checkbox"> 튜브·와이어 오버레이</label>
+  </div>
+  <div id="status"></div>
+</header>
 
 <div class="layout">
   <div id="stage"><canvas id="cv"></canvas></div>
 
   <div id="side">
-    <div id="status"></div>
     <div id="warn-ref" class="warn"></div>
     <div id="warn" class="warn"></div>
 
-    <fieldset>
-      <legend>세션 · 이동 — 목록·이전/다음·일괄 복사는 고른 세션 안에서만</legend>
-      <div class="row">
-        <select id="session"></select>
-      </div>
-      <div class="row">
-        <span class="unit"><b id="m-idx">-</b> / <b id="m-total">-</b> · 라벨됨
-          <b id="m-labeled">-</b></span>
-      </div>
-      <div class="row">
-        <button id="prev">◀ 이전</button>
-        <button id="next">다음 ▶</button>
-        <label><input id="ref-on" type="checkbox"> 튜브·와이어 오버레이</label>
-      </div>
-    </fieldset>
+    <div class="panels">
+      <fieldset class="p-wire">
+        <legend>와이어 편집</legend>
+        <div class="hint" id="wire-hint">우측 상단 꼭짓점(◎ 피벗) 기준으로 이동 · 회전</div>
+        <!-- 와이어가 여럿인 환경(BestFA)에서만 보임 — KIMM(와이어 1개)은 숨김 -->
+        <div class="row multi-wire" id="wire-pick-row">
+          <span class="lbl">편집할 와이어</span><span class="seg-btns" id="wire-pick"></span>
+        </div>
+        <div class="row" id="pose">-</div>
+        <div class="row">
+          <span class="unit">두께</span>
+          <input id="thick" type="number" min="6" step="1">
+          <span class="unit">길이</span>
+          <input id="len" type="number" min="6" step="1">
+          <span class="unit">px (원본)</span>
+        </div>
+        <div class="row">
+          <button id="reset" title="R">선택 와이어 → 기준</button>
+          <button id="reset-all">모든 와이어 → 기준</button>
+        </div>
+      </fieldset>
 
-    <fieldset>
-      <legend>와이어 — 우측 상단 꼭짓점(◎ 피벗) 기준으로 이동 · 회전</legend>
-      <div class="row">
-        <label for="wire-select">편집할 와이어</label><select id="wire-select"></select>
-        <span class="unit">박스를 클릭하거나 숫자 1·2로 선택</span>
-      </div>
-      <div class="row" id="pose">-</div>
-      <div class="row">
-        <span class="unit">두께</span>
-        <input id="thick" type="number" min="6" step="1">
-        <span class="unit">길이</span>
-        <input id="len" type="number" min="6" step="1">
-        <span class="unit">px (원본 기준)</span>
-      </div>
-      <div class="row">
-        <button id="reset" title="R">선택 와이어를 기준으로</button>
-        <button id="reset-all">모든 와이어를 기준으로</button>
-      </div>
-    </fieldset>
+      <fieldset class="p-save">
+        <legend>이 이미지 <span id="label-state" class="unsaved"></span></legend>
+        <div class="row">
+          <button id="save" class="primary" title="Enter">와이어 모두 저장</button>
+          <button id="clear" class="danger" title="Shift+Delete">라벨 지우기</button>
+          <button id="delete-img" class="danger" title="Delete — 묻지 않고 바로 _removed_manual/ 로 이동">이미지 삭제</button>
+        </div>
+      </fieldset>
 
-    <fieldset>
-      <legend>와이어 폴리곤(seg, 하늘색) — 계산 → labels_seg/ 에 저장</legend>
-      <div class="row" title="저장된 OBB 의 윗변·옆변 + 영상에서 찾은 끝 경계">
-        <span class="unit" style="width:110px">Compute edge 1</span>
-        <button id="edge-run" class="primary">이 세션 전체</button>
-        <button id="edge-run-one">이 이미지만</button>
-      </div>
-      <div class="row" title="저장된 OBB 4점을 그대로 폴리곤으로">
-        <span class="unit" style="width:110px">OBB as edge</span>
-        <button id="edge-obb" class="primary">이 세션 전체</button>
-        <button id="edge-obb-one">이 이미지만</button>
-        <label><input id="edge-on" type="checkbox" checked> 표시</label>
-      </div>
-      <div class="row unit" id="edge-progress"></div>
-      <div class="row unit" id="edge-info"></div>
-      <div class="row">
-        <button id="seg-all" class="primary">seg 저장 — 이 세션 OK 전부</button>
-        <button id="seg-one">이 이미지 seg 저장</button>
-      </div>
-    </fieldset>
+      <fieldset class="p-copy">
+        <legend>일괄 복사 — <span id="copy-what">현재 와이어</span>를 이 세션의…</legend>
+        <!-- 와이어가 여럿인 환경(BestFA)에서만 — 고른 와이어만 바꾸고 나머지는 그대로 -->
+        <div class="row multi-wire">
+          <span class="lbl">복사할 와이어</span><span class="seg-btns" id="copy-pick"></span>
+        </div>
+        <div class="hint multi-wire" id="copy-hint"></div>
+        <div class="row">
+          <button id="copy-empty">라벨 없는 이미지에만</button>
+          <button id="copy-all" class="danger">세션 전체 덮어쓰기</button>
+        </div>
+        <div class="row">
+          <button id="copy-rest" class="danger">이 번호부터 끝까지 덮어쓰기</button>
+        </div>
+        <div class="row">
+          <span class="unit">이 번호부터</span>
+          <input id="copy-to" type="number" min="1" step="1">
+          <span class="unit">번까지</span>
+          <button id="copy-range" class="danger">덮어쓰기</button>
+        </div>
+      </fieldset>
 
-    <fieldset>
-      <legend>이 이미지 <span id="label-state" class="unsaved"></span></legend>
-      <div class="row">
-        <button id="save" class="primary">와이어 모두 저장 (이 이미지)</button>
-        <button id="clear" class="danger">라벨 지우기</button>
-        <button id="delete-img" class="danger" title="Shift+Delete">이미지 삭제</button>
-      </div>
-    </fieldset>
+      <fieldset class="p-seg">
+        <legend>와이어 폴리곤 (seg) → labels_seg/
+          <label class="unit" style="font-weight:400"><input id="edge-on" type="checkbox" checked> 표시</label></legend>
+        <div class="row" title="저장된 OBB 의 윗변·옆변 + 영상에서 찾은 끝 경계">
+          <span class="lbl">Compute edge 1</span>
+          <button id="edge-run" class="primary">이 세션 전체</button>
+          <button id="edge-run-one">이 이미지</button>
+        </div>
+        <!-- edge 2 = 끝 둘레를 직접 따는 방식 (edge2.py) — BestFA 와이어에 맞춤, 와이어 1개(KIMM)면 숨김 -->
+        <div class="row multi-wire" title="끝 둘레를 직접 따서 뾰족한 끝·빛 받은 옆면도 맞음 (BestFA 용)">
+          <span class="lbl">Compute edge 2</span>
+          <button id="edge2-run" class="primary">이 세션 전체</button>
+          <button id="edge2-run-one">이 이미지</button>
+          <button id="edge21-run" title="이 세션 전체를 edge 2 로 계산한 뒤, '낮음'으로 나온 장만 edge 1 로 다시 계산">2 → 낮음은 1</button>
+        </div>
+        <div class="row" title="저장된 OBB 4점을 그대로 폴리곤으로">
+          <span class="lbl">OBB as edge</span>
+          <button id="edge-obb" class="primary">이 세션 전체</button>
+          <button id="edge-obb-one">이 이미지</button>
+        </div>
+        <div class="row" title="Enter 로 저장하거나 일괄 복사한 뒤, 바뀐 장의 경계를 이 방식으로 자동 계산 (환경별로 기억)">
+          <span class="lbl">저장(Enter) 후</span><span class="seg-btns" id="auto-edge"></span>
+        </div>
+        <div class="row unit" id="edge-progress"></div>
+        <div class="row unit" id="edge-info"></div>
+        <div class="row">
+          <button id="seg-all" class="primary">seg 저장 — 이 세션 OK 전부</button>
+          <button id="seg-load">저장된 seg 불러오기</button>
+          <button id="seg-one">이 이미지 seg 저장</button>
+        </div>
+        <div class="row">
+          <button id="seg-all-low"
+                  title="점수가 '낮음'(노랑)인 장도 폴리곤 그대로 저장 — '못 찾음'(빨강)은 폴리곤이 없어 제외">seg 저장 — 이 세션 OK + 낮음</button>
+        </div>
+        <div class="row">
+          <button id="delete-low" class="danger"
+                  title="경계 계산 결과가 '낮음'(노랑)인 장을 이 세션에서 전부 _removed_manual/ 로 이동 (되돌릴 수 있음)">'낮음' 전부 삭제 — 이 세션</button>
+        </div>
+      </fieldset>
 
-    <fieldset>
-      <legend>일괄 복사 — 현재 와이어 모두를 이 세션의…</legend>
-      <div class="row">
-        <button id="copy-empty">라벨 없는 이미지에만 채우기</button>
-        <button id="copy-rest" class="danger">이 번호부터 끝까지 덮어쓰기</button>
-      </div>
-      <div class="row">
-        <span class="unit">이 번호부터</span>
-        <input id="copy-to" type="number" min="1" step="1">
-        <span class="unit">번까지</span>
-        <button id="copy-range" class="danger">덮어쓰기</button>
-      </div>
-      <div class="row">
-        <button id="copy-all" class="danger">세션 전체에 덮어쓰기</button>
-      </div>
-    </fieldset>
+      <fieldset id="crop-box" class="p-crop">
+        <legend>크롭 — <span id="crop-config">환경 설정</span> · <span id="crop-src">-</span>
+          <span id="crop-state" class="unsaved"></span></legend>
+        <div class="row">
+          <label class="unit"><input id="crop-on" type="checkbox"> 사용</label>
+          <input id="crop-w" type="number" min="0" step="1">
+          <span class="unit">×</span>
+          <input id="crop-h" type="number" min="0" step="1">
+          <span class="unit">px (0 = 원본 전체)</span>
+        </div>
+        <div class="row">
+          <span class="unit">↔</span><input id="crop-x" type="range" min="0" max="100" step="1">
+          <span id="crop-xv" class="val"></span>
+          <span class="unit">↕</span><input id="crop-y" type="range" min="0" max="100" step="1">
+          <span id="crop-yv" class="val"></span>
+        </div>
+        <div class="row">
+          <button id="crop-center">Center</button>
+          <button id="crop-save" class="primary">이 세션의 크롭 저장</button>
+        </div>
+        <div id="crop-note" class="hint" style="margin:0"></div>
+      </fieldset>
 
-    <fieldset id="crop-box">
-      <legend>크롭 — <span id="crop-config">환경 설정</span> · <span id="crop-src">-</span>
-        <span id="crop-state" class="unsaved"></span></legend>
-      <div class="row">
-        <label><input id="crop-on" type="checkbox"> 사용</label>
-        <input id="crop-w" type="number" min="0" step="1">
-        <span class="unit">×</span>
-        <input id="crop-h" type="number" min="0" step="1">
-        <span class="unit">px (0 = 원본 전체)</span>
-      </div>
-      <div class="row">
-        <span class="unit">↔</span><input id="crop-x" type="range" min="0" max="100" step="1">
-        <span id="crop-xv" class="val"></span>
-      </div>
-      <div class="row">
-        <span class="unit">↕</span><input id="crop-y" type="range" min="0" max="100" step="1">
-        <span id="crop-yv" class="val"></span>
-      </div>
-      <div class="row">
-        <button id="crop-center">Center</button>
-        <button id="crop-save" class="primary">이 환경의 크롭 저장</button>
-      </div>
-      <div id="crop-note" class="help" style="margin-top:0"></div>
-    </fieldset>
-
-    <div class="help">
-      <b>박스 안 드래그</b> = 이동 · <b>박스 밖 드래그</b> = 피벗(◎) 중심 회전 ·
-      주황 손잡이 = 길이<br>
-      <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 1px (<kbd>Shift</kbd> 10px) ·
-      <kbd>Q</kbd>/<kbd>E</kbd> 회전 ±1° (<kbd>Shift</kbd> ±0.1°) ·
-      휠 또는 <kbd>[</kbd>/<kbd>]</kbd> 두께 ±1px (<kbd>Shift</kbd> ±5px)<br>
-      <kbd>←</kbd>/<kbd>→</kbd> 이전/다음 이미지 · <kbd>↑</kbd>/<kbd>↓</kbd> 이전/다음 세션 ·
-      <kbd>Enter</kbd> 저장 ·
-      <kbd>Delete</kbd> 라벨 지우기 · <kbd>Shift</kbd>+<kbd>Delete</kbd> 이미지 삭제 · <kbd>R</kbd> 기준 와이어로<br>
-      라벨이 없는 이미지는 기준 와이어(앱 오버레이의 빨간 박스와 같은 자리)가 점선으로
-      놓입니다 — 저장해야 라벨이 됩니다. 실선 = 저장된 라벨.<br>
-      빨간 사각형 = 크롭 창 — 박스가 이 안에 들어와야 전처리에서 잘려 나가지 않습니다.
+      <fieldset class="p-clean">
+        <legend>정리 — 이 환경 전체</legend>
+        <div class="row">
+          <button id="remove-black" class="danger"
+                  title="가장 밝은 픽셀이 10 이하인 빈 프레임 → raw/_removed_black/ 로 이동 (되돌릴 수 있음)">빈(검은) 이미지 전부 삭제</button>
+        </div>
+      </fieldset>
     </div>
 
-    <div class="help" id="film-wrap">
-      <div style="margin-bottom:4px;">이 세션 목록 (초록 = 라벨됨)</div>
-      <div id="film"></div>
-    </div>
+    <details class="help">
+      <summary>조작법 · 단축키</summary>
+      <div>
+        <b>박스 안 드래그</b> = 이동 · <b>박스 밖 드래그</b> = 피벗(◎) 중심 회전 ·
+        주황 손잡이 = 길이<br>
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 이동 1px (<kbd>Shift</kbd> 10px) ·
+        <kbd>Q</kbd>/<kbd>E</kbd> 회전 ±1° (<kbd>Shift</kbd> ±0.1°) ·
+        휠 또는 <kbd>[</kbd>/<kbd>]</kbd> 두께 ±1px (<kbd>Shift</kbd> ±5px)<br>
+        <kbd>←</kbd>/<kbd>→</kbd> 이전/다음 이미지 (<kbd>Shift</kbd> 10장씩) · <kbd>↑</kbd>/<kbd>↓</kbd> 이전/다음 세션 ·
+        <kbd>Enter</kbd> 저장 (+ "저장(Enter) 후" 에서 고른 방식으로 경계 계산) ·
+        <kbd>Delete</kbd> 이미지 바로 삭제 (→ _removed_manual/) · <kbd>Shift</kbd>+<kbd>Delete</kbd> 라벨 지우기 · <kbd>R</kbd> 기준 와이어로<br>
+        라벨이 없는 이미지는 기준 와이어(앱 오버레이의 빨간 박스와 같은 자리)가 점선으로
+        놓입니다 — 저장해야 라벨이 됩니다. 실선 = 저장된 라벨.<br>
+        빨간 사각형 = 크롭 창 — 박스가 이 안에 들어와야 전처리에서 잘려 나가지 않습니다.
+      </div>
+    </details>
   </div>
+</div>
+
+<!-- 세션 목록 — 캔버스 아래가 아니라 화면 폭 전체로 (칸이 많아도 줄 수가 적게) -->
+<div id="film-wrap">
+  <div id="film-grip" title="위아래로 끌어 목록 높이 조절 · 더블클릭 = 기본 높이"></div>
+  이 세션 목록 — 초록 = 라벨됨 · 아래 줄: <span style="color:var(--seg)">경계 OK</span> /
+  <span style="color:#f0c26a">낮음</span> / <span style="color:#e05050">못 찾음</span>
+  <div id="film"></div>
 </div>
 
 <script>
@@ -252,8 +350,10 @@ let boxes = [];
 let activeBox = 0;
 let saved = false;           // 지금 박스가 디스크의 라벨과 같은가 (아니면 점선 + "미저장")
 let drag = null;             // 진행 중인 마우스 조작
-let crop = null;             // 선택한 환경의 크롭
+let crop = null;             // 선택한 세션의 크롭 (없으면 미설정)
 let cropDirty = false;
+let navigating = false;
+let cropSaving = false;
 let showRef = false;
 let session = null;          // 보고 있는 세션 폴더 — 목록·이전/다음·일괄 복사가 이 안에서만
 // 경계 계산 결과 (이미지 이름 → /api/edge 응답). 계산 시점에 저장돼 있던 OBB 기준이라,
@@ -313,7 +413,7 @@ function changePreset(event) {
   select.value = selectedDataset;
   select.blur();
   if (next === selectedDataset) return;
-  if (pendingWrites || computingEdges) {
+  if (pendingWrites || computingEdges || cropSaving || navigating) {
     setStatus("저장·경계 계산이 끝난 뒤 프리셋을 바꿔 주세요.", true);
     return;
   }
@@ -326,6 +426,8 @@ function changePreset(event) {
 
 async function loadConfig() {
   cfg = await api("/api/config");
+  initWireUi();
+  initAutoEdge();
   document.getElementById("m-source").textContent =
     cfg.dirs > 1 ? `${cfg.source} (세션 ${cfg.dirs}개)` : cfg.source;
   document.getElementById("m-class").textContent = cfg.class_name;
@@ -429,12 +531,57 @@ function renderFilm() {
   });
 }
 
+// 목록 높이 조절 — 목록은 화면 아래에 고정이라, 손잡이를 위로 끌면 이미지 아래쪽을 덮으며
+// 커진다 (이미지 위쪽은 그대로). 높이는 이 브라우저에 기억.
+(() => {
+  const FILM_KEY = "labeller.filmHeight";
+  const DEFAULT_H = 150, MIN_H = 30;
+  const film = document.getElementById("film");
+  const grip = document.getElementById("film-grip");
+  const wrap = document.getElementById("film-wrap");
+  const setH = h => { film.style.maxHeight = h + "px"; };
+  // 목록이 가리는 높이 → 본문 아래 여백 · 오른쪽 패널 높이에 반영
+  new ResizeObserver(() => document.documentElement.style.setProperty(
+    "--film-h", Math.ceil(wrap.getBoundingClientRect().height) + "px")).observe(wrap);
+  try { const h = Number(localStorage.getItem(FILM_KEY)); if (h >= MIN_H) setH(h); } catch {}
+
+  let start = null;
+  grip.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    grip.classList.add("dragging");
+    start = { y: e.clientY, h: film.getBoundingClientRect().height };
+  });
+  grip.addEventListener("pointermove", e => {
+    if (!start) return;
+    const want = start.h + (start.y - e.clientY);
+    // 칸이 다 보이는 높이보다 크게는 안 늘린다 (늘려도 안 보이는 빈 구간이 생기지 않게)
+    setH(Math.round(Math.max(MIN_H, Math.min(want, film.scrollHeight, window.innerHeight * 0.7))));
+  });
+  const end = () => {
+    if (!start) return;
+    start = null;
+    grip.classList.remove("dragging");
+    try { localStorage.setItem(FILM_KEY, Math.round(film.getBoundingClientRect().height)); } catch {}
+  };
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
+  grip.addEventListener("dblclick", () => {
+    setH(DEFAULT_H);
+    try { localStorage.removeItem(FILM_KEY); } catch {}
+  });
+})();
+
 /** 이전/다음 — 지금 세션 안에서만 돈다. */
 function step(delta) {
   const view = sessionView();
   if (!view.length) return;
   const k = view.indexOf(idx);
-  goTo(view[(k + delta + view.length) % view.length]);
+  // 한 칸씩은 끝에서 처음으로 돌고, 여러 칸(Shift = 10)은 처음·끝에서 멈춘다
+  const next = Math.abs(delta) === 1
+    ? (k + delta + view.length) % view.length
+    : Math.max(0, Math.min(view.length - 1, k + delta));
+  if (next !== k) goTo(view[next]);
 }
 
 /** 이전/다음 세션 — 그 세션의 첫 이미지로. */
@@ -449,37 +596,57 @@ function stepSession(delta) {
 // ── 이미지/라벨 전환 ─────────────────────────────────────────────────────
 
 async function goTo(i) {
-  if (!files.length) return;
-  idx = Math.min(Math.max(i, 0), files.length - 1);
-  if (files[idx].dir !== session) {
-    session = files[idx].dir;
-    renderLists();
+  if (!files.length || navigating || cropSaving) return;
+  const target = Math.min(Math.max(i, 0), files.length - 1);
+  const changingSession = files[target].dir !== session;
+  if (changingSession && cropDirty && !confirm("저장하지 않은 크롭을 버리고 세션을 바꿀까요?")) {
+    document.getElementById("session").value = session;
+    return;
   }
-  const name = files[idx].name;
-  await new Promise((res, rej) => {
-    img.onload = res;
-    img.onerror = () => rej(new Error("이미지를 읽을 수 없습니다: " + name));
-    img.src = datasetUrl("/image/" + encodeURIComponent(name) + "?t=" + Date.now());
-  });
+  navigating = true;
+  try {
+    let nextCrop = null;
+    if (changingSession) {
+      const response = await api("/api/crop?name=" + encodeURIComponent(files[target].name));
+      nextCrop = response.crop;
+    }
+    idx = Math.min(Math.max(i, 0), files.length - 1);
+    if (files[idx].dir !== session) {
+      session = files[idx].dir;
+      crop = nextCrop;
+      cropDirty = false;
+      setCropUI();
+      renderLists();
+    }
+    const name = files[idx].name;
+    await new Promise((res, rej) => {
+      img.onload = res;
+      img.onerror = () => rej(new Error("이미지를 읽을 수 없습니다: " + name));
+      img.src = datasetUrl("/image/" + encodeURIComponent(name) + "?t=" + Date.now());
+    });
 
-  scale = Math.min(1, MAX_W / img.naturalWidth);
-  cv.width = Math.round(img.naturalWidth * scale);
-  cv.height = Math.round(img.naturalHeight * scale);
-  composeBackground();
+    scale = Math.min(1, MAX_W / img.naturalWidth);
+    cv.width = Math.round(img.naturalWidth * scale);
+    cv.height = Math.round(img.naturalHeight * scale);
+    composeBackground();
 
-  const label = await api("/api/label?name=" + encodeURIComponent(name));
-  const instances = label.instances || (label.points ? [label.points] : []);
-  const loaded = instances.map(p => poseFromPoints(p, img.naturalWidth, img.naturalHeight)).filter(Boolean);
-  const complete = loaded.length >= (cfg.wire_count || 1);
-  while (loaded.length < (cfg.wire_count || 1)) loaded.push(templateBox(loaded.length));
-  setBoxes(loaded, complete);
-  labelDirty = false;
+    const label = await api("/api/label?name=" + encodeURIComponent(name));
+    const instances = label.instances || (label.points ? [label.points] : []);
+    const loaded = instances.map(p => poseFromPoints(p, img.naturalWidth, img.naturalHeight)).filter(Boolean)
+      .sort((a, b) => boxCenterX(a) - boxCenterX(b));   // 와이어 1 = 왼쪽 (기준 와이어·서버와 같은 순서)
+    const complete = loaded.length >= (cfg.wire_count || 1);
+    while (loaded.length < (cfg.wire_count || 1)) loaded.push(templateBox(loaded.length));
+    setBoxes(loaded, complete);
+    labelDirty = false;
+    if (!edges.has(name)) await loadSavedSeg(name);
 
-  renderRefWarn();
-  renderMeta();
-  renderFilm();
-  draw();
-  setStatus("");
+    renderRefWarn();
+    renderMeta();
+    renderFilm();
+    draw();
+    setStatus("");
+  } catch (e) { setStatus(e.message, true); }
+  finally { navigating = false; }
 }
 
 // ── 와이어 자세 ↔ 꼭짓점 ─────────────────────────────────────────────────
@@ -536,27 +703,71 @@ function templateBox(index = activeBox) {
            angle: Math.PI / 2, len: H / 2, thick: DEFAULT_THICK };
 }
 
+function boxCenterX(b) {
+  const { ux, rx } = axes(b);
+  return b.px + (b.len * ux - b.thick * rx) / 2;
+}
+
+// ── 와이어 여럿(BestFA) 전용 UI — 와이어 1개(KIMM)면 body.multi 가 없어서 전부 숨김 ──
+
+const wireCount = () => (cfg && cfg.wire_count) || 1;
+const wireName = i => wireCount() === 2 ? `${i + 1} · ${i ? "오른쪽" : "왼쪽"}` : `${i + 1}`;
+let copyWire = null;   // 일괄 복사 대상 — null = 와이어 모두, 숫자 = 그 와이어만
+
+function makeSegButtons(el, items, onPick) {
+  el.replaceChildren(...items.map(([value, text]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = text;
+    b.dataset.value = value;
+    b.onclick = () => { onPick(value); b.blur(); };
+    return b;
+  }));
+}
+
+function markSeg(el, value) {
+  for (const b of el.children) b.classList.toggle("on", b.dataset.value === String(value));
+}
+
+function initWireUi() {
+  const n = wireCount();
+  document.body.classList.toggle("multi", n > 1);
+  if (n > 1) document.getElementById("wire-hint").textContent += " — 박스 클릭 또는 숫자 1·2로 선택";
+  const wires = Array.from({length: n}, (_, i) => [i, `와이어 ${wireName(i)}`]);
+  makeSegButtons(document.getElementById("wire-pick"), wires, i => selectWire(i));
+  makeSegButtons(document.getElementById("copy-pick"), [["all", "모두"], ...wires],
+                 v => setCopyWire(v === "all" ? null : v));
+  setCopyWire(null);
+}
+
+function setCopyWire(value) {
+  copyWire = value;
+  markSeg(document.getElementById("copy-pick"), value == null ? "all" : value);
+  const multi = wireCount() > 1;
+  document.getElementById("copy-what").textContent =
+    !multi ? "현재 와이어" : value == null ? "와이어 모두" : `와이어 ${value + 1}만`;
+  // 와이어 하나만 복사하면 라벨 없는 장은 반쪽 라벨이 되므로 이 버튼은 '모두'일 때만
+  const empty = document.getElementById("copy-empty");
+  empty.disabled = value != null;
+  empty.title = value != null ? "라벨 없는 장엔 와이어를 모두 써야 해서 '모두'에서만 됩니다" : "";
+  document.getElementById("copy-hint").textContent = value == null ? "" :
+    `대상 장의 와이어 ${value + 1}만 바꾸고 다른 와이어는 그대로 둡니다 ` +
+    `(라벨이 없던 장은 지금 이미지의 와이어 전부로 채움)`;
+}
+
 function setBoxes(next, isSaved = false) {
   boxes = next;
   activeBox = Math.min(activeBox, Math.max(0, boxes.length - 1));
   box = boxes[activeBox] || null;
   saved = isSaved;
-  const select = document.getElementById("wire-select");
-  select.replaceChildren();
-  boxes.forEach((_, index) => {
-    const option = document.createElement("option");
-    option.value = index;
-    option.textContent = `와이어 ${index + 1}`;
-    select.appendChild(option);
-  });
-  select.value = activeBox;
+  markSeg(document.getElementById("wire-pick"), activeBox);
 }
 
 function selectWire(index) {
   if (!boxes[index] || drag) return;
   activeBox = index;
   box = boxes[index];
-  document.getElementById("wire-select").value = index;
+  markSeg(document.getElementById("wire-pick"), index);
   draw();
 }
 
@@ -601,8 +812,8 @@ function cropRect(W, H) {
 
 function setCropUI() {
   const fs = document.getElementById("crop-box");
-  document.getElementById("crop-src").textContent = cfg.source;
-  document.getElementById("crop-config").textContent = cfg.config;
+  document.getElementById("crop-src").textContent = session || cfg.source;
+  document.getElementById("crop-config").textContent = "세션별 crop.yaml";
   const note = document.getElementById("crop-note");
   if (!crop) {
     fs.disabled = true;
@@ -612,7 +823,8 @@ function setCropUI() {
   fs.disabled = !!crop.auto;
   note.textContent = crop.auto
     ? "auto_crop 이 켜져 있어 이미지마다 라벨에서 창을 잡습니다 — 고정 창이 없습니다."
-    : "";
+    : crop.configured ? "이 세션에 저장된 크롭을 사용합니다."
+    : "크롭 미설정 — 저장 전에는 전처리할 수 없습니다. 크롭하지 않을 때도 사용을 끄고 저장하세요.";
   document.getElementById("crop-on").checked = crop.enabled;
   document.getElementById("crop-w").value = crop.width;
   document.getElementById("crop-h").value = crop.height;
@@ -639,19 +851,47 @@ function readCropUI() {
 function renderCropMeta() {
   document.getElementById("crop-xv").textContent = `${crop.center_x.toFixed(0)}%`;
   document.getElementById("crop-yv").textContent = `${crop.center_y.toFixed(0)}%`;
-  document.getElementById("crop-state").textContent = cropDirty ? "· 미저장" : "";
+  document.getElementById("crop-state").textContent = cropDirty ? "· 미저장" : crop.configured ? "" : "· 설정 필요";
+}
+
+async function loadSavedSeg(name) {
+  const response = await api("/api/seg?name=" + encodeURIComponent(name));
+  const polygons = response.polygons || [];
+  const file = files.find(f => f.name === name);
+  if (file) file.seg = polygons.length > 0;
+  if (polygons.length) {
+    edges.set(name, { method: "saved", status: "saved",
+      instances: polygons.map(polygon => ({ polygon, status: "saved" })) });
+  } else edges.delete(name);
+}
+
+async function reloadSavedSeg() {
+  if (!files[idx] || navigating || computingEdges || pendingWrites) return;
+  const name = files[idx].name;
+  if (edges.has(name) && edges.get(name).method !== "saved" &&
+      !confirm("현재 계산 결과 대신 저장된 seg를 불러올까요?")) return;
+  try {
+    await loadSavedSeg(name);
+    renderLists();
+    draw();
+    setStatus(files.find(f => f.name === name).seg ? "저장된 seg를 불러왔습니다." : "저장된 seg가 없습니다.");
+  } catch (e) { setStatus(e.message, true); }
 }
 
 async function saveCrop() {
+  if (!files[idx] || navigating || cropSaving) return;
+  cropSaving = true;
+  document.getElementById("crop-box").disabled = true;
   try {
-    const res = await post("/api/crop", crop);
+    const res = await post("/api/crop", { ...crop, name: files[idx].name });
     crop = { ...res.crop };
     cropDirty = false;
     setCropUI();
     draw();
-    setStatus(`크롭 저장됨 → ${cfg.config} (${cfg.source}): ${crop.width}×${crop.height} ` +
+    setStatus(`크롭 저장됨 → ${session}/crop.yaml: ${crop.width}×${crop.height} ` +
               `(${crop.center_x}%, ${crop.center_y}%)`);
   } catch (e) { setStatus(e.message, true); }
+  finally { cropSaving = false; setCropUI(); }
 }
 
 // 박스가 크롭 창을 벗어나면 preprocess.py 가 이 라벨을 폴리곤으로 클리핑합니다.
@@ -868,7 +1108,8 @@ function setThickness(t) {
 /** 지금 이미지의 경계 — 계산 시점의 OBB 가 그대로(저장 상태)일 때만. */
 function currentEdge() {
   const f = files[idx];
-  return f && saved ? edges.get(f.name) : null;
+  const result = f && edges.get(f.name);
+  return result && (result.method === "saved" ? !labelDirty : saved) ? result : null;
 }
 
 function drawEdge() {
@@ -903,10 +1144,25 @@ function renderEdgeInfo() {
   const f = files[idx];
   const r = f && edges.get(f.name);
   if (!r) { el.textContent = ""; return; }
+  if (r.method === "saved" && !labelDirty) {
+    el.textContent = `저장된 seg · 와이어 ${r.instances.length}개 (재계산하지 않음)`;
+    return;
+  }
   if (!saved) { el.textContent = "박스를 바꿔서 경계가 맞지 않습니다 — 저장 후 다시 계산하세요."; return; }
+  // edge 2 가 "낮음"이면 걸린 기준을 괄호로 (예: low (끝 둘레 튐))
+  const why = wire => wire.score && wire.score.fail && wire.score.fail.length
+    ? ` (${wire.score.fail.join(", ")})` : "";
   if (r.instances && r.instances.length > 1) {
-    el.textContent = r.instances.map((wire, index) => `와이어 ${index + 1}: ${wire.status}`).join(" · ")
+    el.textContent = (EDGE_METHOD_NAME[r.method] || r.method) + " · " +
+      r.instances.map((wire, index) => `와이어 ${index + 1}: ${wire.status}${why(wire)}`).join(" · ")
       + (f.seg ? " · seg 저장됨" : "");
+    return;
+  }
+  if (r.method === "2") {
+    const s = r.score || {};
+    el.textContent = `edge 2: ${r.status}${why(r)}` +
+      (s.arc == null ? "" : ` · 둘레 ${Math.round(s.arc * 100)}% · 튐 ${s.radius} · 옆면 ${s.side}px · 매끄러움 ${s.smooth}px`) +
+      (r.tip == null ? "" : ` · 와이어 길이 ${r.tip.toFixed(0)}px`) + (f.seg ? " · seg 저장됨" : "");
     return;
   }
   const head = r.method === "obb" ? "OBB as edge (OBB 4점 그대로)"
@@ -920,9 +1176,33 @@ function renderEdgeInfo() {
 
 /**
  * 이 세션의 라벨된 이미지 전부 폴리곤 계산 — 4개씩 병렬, 도착하는 대로 표시.
- * method "1" = compute edge 1 (edge.py), "obb" = OBB as edge. 마지막에 계산한 방식이 남는다.
+ * method "1" = compute edge 1 (edge.py), "2" = compute edge 2 (edge2.py, BestFA 용),
+ * "obb" = OBB as edge. 마지막에 계산한 방식이 남는다.
  * only = 이 이름들만 (OBB 를 저장·덮어써서 바뀐 장만 다시 계산할 때).
  */
+const EDGE_METHOD_NAME = { "1": "edge 1", "2": "edge 2", obb: "OBB as edge" };
+// 저장(Enter)·일괄 복사 뒤 자동으로 계산할 방식 — seg 패널의 "저장(Enter) 후" 에서 고름.
+// 환경(프리셋)별로 이 브라우저에 기억. 기본: BestFA(와이어 여럿) = edge 2, KIMM = edge 1.
+// edge 2 는 BestFA 용이라 와이어 1개 환경에선 선택지에 없음.
+let autoEdge = null;
+const autoEdgeKey = () => "labeller.autoEdge." + (selectedDataset || "default");
+const autoEdgeChoices = () => wireCount() > 1 ? ["1", "2", "obb"] : ["1", "obb"];
+const autoEdgeMethod = () => autoEdge || (wireCount() > 1 ? "2" : "1");
+
+function setAutoEdge(method, remember = true) {
+  autoEdge = method;
+  markSeg(document.getElementById("auto-edge"), method);
+  if (remember) try { localStorage.setItem(autoEdgeKey(), method); } catch {}
+}
+
+function initAutoEdge() {
+  makeSegButtons(document.getElementById("auto-edge"),
+                 autoEdgeChoices().map(m => [m, EDGE_METHOD_NAME[m]]), m => setAutoEdge(m));
+  let stored = null;
+  try { stored = localStorage.getItem(autoEdgeKey()); } catch {}
+  setAutoEdge(autoEdgeChoices().includes(stored) ? stored : autoEdgeMethod(), false);
+}
+
 async function computeEdges(method, only = null) {
   const names = only || sessionView().map(i => files[i]).filter(f => f.labeled).map(f => f.name);
   const prog = document.getElementById("edge-progress");
@@ -930,14 +1210,15 @@ async function computeEdges(method, only = null) {
     if (!only) setStatus("이 세션에 라벨된 이미지가 없습니다 — OBB 를 먼저 잡으세요.", true);
     return;
   }
-  const btns = ["edge-run", "edge-run-one", "edge-obb", "edge-obb-one", "seg-all", "seg-one"]
+  const btns = ["edge-run", "edge-run-one", "edge2-run", "edge2-run-one", "edge21-run", "edge-obb", "edge-obb-one",
+                "seg-all", "seg-all-low", "seg-one", "delete-low"]
     .map(id => document.getElementById(id));
   computingEdges += 1;
   btns.forEach(b => { b.disabled = true; });
   const count = { ok: 0, low: 0, no_tip: 0, error: 0 };
   let next = 0, done = 0;
   const show = () => {
-    prog.textContent = (method === "obb" ? "OBB as edge" : "edge 1") +
+    prog.textContent = (EDGE_METHOD_NAME[method] || method) +
                        (only ? ` (${names.length}장만)` : " (세션 전체)") + ": " +
                        `${done}/${names.length} · OK ${count.ok} · 낮음 ${count.low} · ` +
                        `못 찾음 ${count.no_tip}` + (count.error ? ` · 오류 ${count.error}` : "");
@@ -967,6 +1248,20 @@ async function computeEdges(method, only = null) {
   draw();
 }
 
+/**
+ * 이 세션 전체를 edge 2 로 계산한 뒤, '낮음'으로 나온 장만 edge 1 로 다시 계산 (BestFA).
+ * 그 장들은 edge 1 결과로 바뀐다 — edge 1 도 낮음이어도 edge 1 결과가 남음 ('못 찾음'은 그대로 edge 2).
+ */
+async function computeEdges2Then1() {
+  await computeEdges("2");
+  const lows = sessionView().map(i => files[i].name)
+    .filter(n => { const r = edges.get(n); return r && r.method === "2" && r.status === "low"; });
+  if (!lows.length) { setStatus("edge 2 결과에 '낮음'이 없습니다 — edge 1 로 다시 계산할 장 없음"); return; }
+  await computeEdges("1", lows);
+  const still = lows.filter(n => { const r = edges.get(n); return r && r.status !== "ok"; }).length;
+  setStatus(`edge 2 '낮음' ${lows.length}장 → edge 1 로 다시 계산 (그중 edge 1 도 OK 아님 ${still}장)`);
+}
+
 /** 지금 이미지만 계산 — 서버는 디스크의 OBB 로 계산하므로 고친 박스는 먼저 저장해야 한다. */
 async function computeCurrent(method) {
   const f = files[idx];
@@ -994,12 +1289,50 @@ async function saveSeg(names) {
   } catch (e) { setStatus(e.message, true); }
 }
 
-async function saveSegSession() {
+/** 이 세션의 경계 결과를 seg 로 저장. withLow = '낮음'(점수만 낮고 폴리곤은 있음)도 포함. */
+async function saveSegSession(withLow = false) {
+  const keep = withLow ? ["ok", "low"] : ["ok"];
+  const picked = sessionView().map(i => files[i].name)
+    .filter(n => { const r = edges.get(n); return r && keep.includes(r.status) && edgePolygons(r).length; });
+  const what = withLow ? "OK + 낮음" : "OK";
+  if (!picked.length) { setStatus(`저장할 ${what} 결과가 없습니다 — 먼저 Compute edge 1 / 2 / OBB as edge.`, true); return; }
+  const low = picked.filter(n => edges.get(n).status === "low").length;
+  if (!confirm(`세션 ${session} 의 ${what} ${picked.length}장` + (withLow ? ` (그중 낮음 ${low}장)` : "") +
+               ` seg 를 저장(기존 seg 덮어쓰기)합니다. 계속할까요?`)) return;
+  await saveSeg(picked);
+}
+
+/**
+ * 이 세션에서 경계 계산이 "낮음"으로 나온 이미지를 전부 삭제 (_removed_manual/ 로 이동, 되돌릴 수 있음).
+ * 한꺼번에 지우는 것이라 장수를 한 번 보여 주고 확인받는다.
+ */
+async function deleteLowSession() {
   const names = sessionView().map(i => files[i].name)
-    .filter(n => { const r = edges.get(n); return r && r.status === "ok" && edgePolygons(r).length; });
-  if (!names.length) { setStatus("저장할 OK 결과가 없습니다 — 먼저 Compute edge 1 / OBB as edge.", true); return; }
-  if (!confirm(`세션 ${session} 의 OK ${names.length}장 seg 를 저장(기존 seg 덮어쓰기)합니다. 계속할까요?`)) return;
-  await saveSeg(names);
+    .filter(n => { const r = edges.get(n); return r && r.status === "low"; });
+  if (!names.length) { setStatus("이 세션에 경계 '낮음' 이미지가 없습니다 — 먼저 Compute edge 1.", true); return; }
+  if (!confirm(`세션 ${session} 의 경계 '낮음' ${names.length}장을 삭제합니다 (_removed_manual/ 로 이동). 계속할까요?`)) return;
+  const current = files[idx] && files[idx].name;
+  const gone = new Set();
+  try {
+    for (const n of names) {
+      await post("/api/delete", { name: n });
+      gone.add(n);
+      edges.delete(n);
+      setStatus(`낮음 삭제 중… ${gone.size}/${names.length}`);
+    }
+  } catch (e) { setStatus(e.message, true); }
+  const view = sessionView();
+  const pos = Math.max(0, view.indexOf(idx));
+  files = files.filter(f => !gone.has(f.name));
+  renderLists();
+  // 보던 장이 남았으면 그 장, 지워졌으면 세션 안 같은 위치 근처로
+  let target = files.findIndex(f => f.name === current);
+  if (target < 0) {
+    const left = sessionView();
+    target = left.length ? left[Math.min(pos, left.length - 1)] : Math.min(idx, files.length - 1);
+  }
+  if (files.length) await goTo(target);
+  if (gone.size === names.length) setStatus(`경계 '낮음' ${gone.size}장 삭제 → _removed_manual/${session}/`);
 }
 
 async function saveSegCurrent() {
@@ -1023,7 +1356,7 @@ async function saveCurrent() {
     renderLists();
     draw();
     setStatus("저장됨: " + name);
-    await computeEdges("1", [name]);
+    await computeEdges(autoEdgeMethod(), [name]);
   } catch (e) { setStatus(e.message, true); }
 }
 
@@ -1047,11 +1380,13 @@ async function clearCurrent() {
 /**
  * 이미지 + 라벨(labels/, labels_seg/) 삭제 — 서버가 datasets/kimm/raw/_removed_manual/<세션>/ 으로
  * 옮긴다(되돌릴 수 있음). 같은 세션의 다음 장으로, 마지막 장이었으면 이전 장으로 간다.
+ * 묻지 않고 바로 — 되돌릴 수 있으니 빠른 정리를 우선. 앞 삭제가 끝나기 전 겹쳐 누른 것은 무시.
  */
+let deleting = false;
 async function deleteCurrent() {
   const f = files[idx];
-  if (!f) return;
-  if (!confirm(`${f.dir}/${f.name}\n이미지와 라벨을 삭제합니다 (_removed_manual/ 로 이동). 계속할까요?`)) return;
+  if (!f || deleting) return;
+  deleting = true;
   try {
     await post("/api/delete", { name: f.name });
     edges.delete(f.name);
@@ -1063,6 +1398,37 @@ async function deleteCurrent() {
     renderLists();
     if (files.length) await goTo(target);
     setStatus(`삭제됨: ${f.name} → _removed_manual/${f.dir}/`);
+  } catch (e) { setStatus(e.message, true); } finally { deleting = false; }
+}
+
+/**
+ * 완전히 검은 빈 프레임을 이 환경의 모든 세션에서 찾아 지운다 — 서버가 raw/_removed_black/<세션>/ 으로
+ * 옮기고 manifest.csv 에 남긴다(되돌릴 수 있음). 먼저 찾아서 세션별 장수를 보여 주고 확인받는다.
+ */
+async function removeBlack() {
+  if (labelDirty && !confirm("저장하지 않은 라벨 변경이 있습니다. 그래도 계속할까요?")) return;
+  setStatus("빈(검은) 이미지 찾는 중… (이미지가 많으면 수십 초)");
+  try {
+    const found = await post("/api/black", { apply: false });
+    if (!found.names.length) {
+      setStatus(`빈(검은) 이미지 없음 — 전체 ${found.total}장 확인 (가장 밝은 픽셀 ≤ ${found.threshold})`);
+      return;
+    }
+    const lines = Object.entries(found.sessions).map(([s, n]) => `  ${s}: ${n}장`).join("\n");
+    if (!confirm(`빈(검은) 이미지 ${found.names.length}장 (전체 ${found.total}장 중, 가장 밝은 픽셀 ≤ ${found.threshold})\n`
+                 + `${lines}\n\n이미지와 라벨을 _removed_black/ 로 옮깁니다. 계속할까요?`)) {
+      setStatus("빈 이미지 삭제 취소");
+      return;
+    }
+    const current = files[idx] && files[idx].name;
+    const res = await post("/api/black", { apply: true, names: found.names });
+    const gone = new Set(res.names);
+    for (const n of gone) edges.delete(n);
+    files = files.filter(f => !gone.has(f.name));
+    renderLists();
+    const keep = files.findIndex(f => f.name === current);
+    if (files.length) await goTo(keep >= 0 ? keep : Math.min(idx, files.length - 1));
+    setStatus(`빈(검은) 이미지 ${res.moved}장 → _removed_black/`);
   } catch (e) { setStatus(e.message, true); }
 }
 
@@ -1071,6 +1437,22 @@ async function deleteCurrent() {
  * 끝까지만 — 카메라가 중간에 밀린 세션에서 그 지점 이후만 다시 맞출 때. toPos = 세션 안
  * 목표 번호(1부터) — 지금 번호와 그 번호 사이만 (양 끝 포함, 앞뒤 무관).
  */
+/** 화면의 박스들이 디스크 라벨과 같은가 (와이어 순서 = 중심 x, 좌표 오차 1e-5 이내). */
+async function screenMatchesDisk(name) {
+  const disk = (await api("/api/label?name=" + encodeURIComponent(name))).instances || [];
+  const cx = pts => pts.reduce((s, [x]) => s + x, 0) / pts.length;
+  const a = disk.slice().sort((p, q) => cx(p) - cx(q));
+  const b = normalizedBoxes().sort((p, q) => cx(p) - cx(q));
+  if (a.length !== b.length) return false;
+  // 저장할 때 6자리로 반올림·0~1 로 자르므로 같은 규칙으로 비교
+  const r = v => Math.round(Math.max(0, Math.min(1, v)) * 1e6) / 1e6;
+  const key = pts => pts.map(([x, y]) => [r(x), r(y)]).sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  return a.every((p, i) => {
+    const ka = key(p), kb = key(b[i]);
+    return ka.every(([x, y], j) => Math.abs(x - kb[j][0]) < 1e-5 && Math.abs(y - kb[j][1]) < 1e-5);
+  });
+}
+
 async function copyToAll(overwrite, fromHere = false, toPos = null) {
   if (!box) return;
   const out = outsideCount();
@@ -1093,15 +1475,23 @@ async function copyToAll(overwrite, fromHere = false, toPos = null) {
   }
   if (out && !confirm(`박스 꼭짓점 ${out}개가 크롭 창 밖입니다 — 전처리에서 OBB 가 ` +
                       `망가집니다. 그래도 복사할까요?`)) return;
-  if (overwrite && !confirm(`세션 ${here.dir} 의 ${range} 기존 라벨을 지금 박스로 ` +
+  // 와이어 하나만(BestFA) — 대상 장의 그 와이어만 바뀐다. 와이어 1개 환경은 항상 null
+  const wire = wireCount() > 1 ? copyWire : null;
+  const what = wire == null ? "지금 박스로" : `지금 와이어 ${wire + 1}로 (다른 와이어는 그대로)`;
+  if (overwrite && !confirm(`세션 ${here.dir} 의 ${range} 기존 라벨을 ${what} ` +
                             `덮어씁니다. 계속할까요?`)) return;
   const wasLabeled = here.labeled;
   try {
     const res = await post("/api/copy", {
       name: here.name, instances: normalizedBoxes(),
       overwrite, from_here: fromHere, to_name: toName,
+      ...(wire == null ? {} : { wire }),
     });
-    if (overwrite || !wasLabeled) {
+    if (wire != null) {
+      // 와이어 하나만 썼으니 이 이미지의 다른 와이어는 디스크 쪽 그대로 — 화면의 다른 와이어를
+      // 고치던 중이었다면 아직 미저장으로 둔다 (화면과 디스크가 같을 때만 저장됨 표시)
+      if (await screenMatchesDisk(here.name)) { saved = true; labelDirty = false; }
+    } else if (overwrite || !wasLabeled) {
       saved = true;   // 이 이미지에도 지금 박스가 써졌다
       labelDirty = false;
     }
@@ -1111,8 +1501,11 @@ async function copyToAll(overwrite, fromHere = false, toPos = null) {
     for (const n of changed) edges.delete(n);
     await loadImages();
     draw();
-    setStatus(`복사됨: ${res.written}장 (건너뜀 ${res.skipped}장) — 그 장들의 seg 는 지우고 경계 다시 계산`);
-    await computeEdges("1", changed);
+    setStatus(`복사됨${wire == null ? "" : ` (와이어 ${wire + 1}만)`}: ${res.written}장 ` +
+              `(건너뜀 ${res.skipped}장` +
+              (res.filled ? ` · 라벨 없던 ${res.filled}장은 와이어 전부` : "") +
+              `) — 그 장들의 seg 는 지우고 경계 다시 계산`);
+    await computeEdges(autoEdgeMethod(), changed);
   } catch (e) { setStatus(e.message, true); }
 }
 
@@ -1126,8 +1519,8 @@ window.addEventListener("keydown", (evt) => {
   const nudge = (dx, dy) => { if (box) { box.px += dx; box.py += dy; edited(); } };
   const px = fine ? 10 : 1;          // WASD 이동량 (step() 과 이름이 겹치지 않게)
   switch (evt.code) {
-    case "ArrowLeft": step(-1); break;
-    case "ArrowRight": step(1); break;
+    case "ArrowLeft": step(fine ? -10 : -1); break;
+    case "ArrowRight": step(fine ? 10 : 1); break;
     case "ArrowUp": stepSession(-1); break;
     case "ArrowDown": stepSession(1); break;
     case "KeyQ": turn(-(fine ? 0.1 : 1) * DEG); break;
@@ -1142,7 +1535,8 @@ window.addEventListener("keydown", (evt) => {
     case "Digit2": selectWire(1); break;
     case "KeyR": box = templateBox(); edited(); break;
     case "Enter": case "NumpadEnter": saveCurrent(); break;
-    case "Delete": case "Backspace": if (fine) deleteCurrent(); else clearCurrent(); break;
+    // Delete = 이미지 바로 삭제 (키를 누르고 있어도 한 장만 — 자동 반복은 무시), Shift+Delete = 라벨만 지우기
+    case "Delete": case "Backspace": if (evt.repeat) break; if (fine) clearCurrent(); else deleteCurrent(); break;
     default: return;
   }
   evt.preventDefault();
@@ -1158,9 +1552,9 @@ document.getElementById("session").onchange = (e) => {
 document.getElementById("save").onclick = saveCurrent;
 document.getElementById("clear").onclick = clearCurrent;
 document.getElementById("delete-img").onclick = deleteCurrent;
+document.getElementById("remove-black").onclick = removeBlack;
 document.getElementById("reset").onclick = () => { box = templateBox(); edited(); };
 document.getElementById("reset-all").onclick = resetAllWires;
-document.getElementById("wire-select").onchange = e => { selectWire(Number(e.target.value)); e.target.blur(); };
 document.getElementById("copy-empty").onclick = () => copyToAll(false);
 document.getElementById("copy-all").onclick = () => copyToAll(true);
 document.getElementById("copy-rest").onclick = () => copyToAll(true, true);
@@ -1169,9 +1563,14 @@ document.getElementById("copy-range").onclick = () =>
 document.getElementById("edge-run").onclick = () => computeEdges("1");
 document.getElementById("edge-obb").onclick = () => computeEdges("obb");
 document.getElementById("edge-run-one").onclick = () => computeCurrent("1");
+document.getElementById("edge2-run").onclick = () => computeEdges("2");
+document.getElementById("edge2-run-one").onclick = () => computeCurrent("2");
+document.getElementById("edge21-run").onclick = computeEdges2Then1;
 document.getElementById("edge-obb-one").onclick = () => computeCurrent("obb");
-document.getElementById("seg-all").onclick = saveSegSession;
+document.getElementById("seg-all").onclick = () => saveSegSession(false);
+document.getElementById("seg-all-low").onclick = () => saveSegSession(true);
 document.getElementById("seg-one").onclick = saveSegCurrent;
+document.getElementById("delete-low").onclick = deleteLowSession;
 document.getElementById("edge-on").onchange = (e) => { showEdge = e.target.checked; draw(); };
 document.getElementById("ref-on").onchange = (e) => {
   showRef = e.target.checked;
@@ -1193,6 +1592,7 @@ document.getElementById("crop-center").onclick = () => {
   readCropUI();
 };
 document.getElementById("crop-save").onclick = saveCrop;
+document.getElementById("seg-load").onclick = reloadSavedSeg;
 
 (async function init() {
   await loadPresets();

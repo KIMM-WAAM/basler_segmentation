@@ -68,12 +68,15 @@
     <OutlineOpacity>0.9</OutlineOpacity>
   </ReferenceOverlay>
   <Recording>
-    <SessionPrefix>kimm</SessionPrefix>
+    <!-- 이 프로필의 촬영 환경 — --dataset 이 다른 환경 프로필을 읽지 않게 막고 창 제목에 표시. -->
+    <Environment>kimm</Environment>
     <!-- Record 버튼이 PNG를 저장할 '기준' 폴더. 카메라 수신 원본을 저장합니다:
          hardware_roi=false면 센서 전체, true면 하드웨어 ROI 영역만 저장됩니다.
          REC 를 켤 때마다 이 폴더 아래에 세션 폴더가 새로 만들어집니다:
-             datasets/kimm/raw/kimm_YYMMDD_HHMMSS/Mono/000001__cap_YYMMDD_HHMMSS.png
+             datasets/kimm/raw/YYMMDD_HHMMSS/Mono/000001__cap_YYMMDD_HHMMSS.png
          (파일명 앞 6자리 인덱스는 training/common.py 의 INDEX_RE 규약과 동일)
+         장면 메모 같은 세션 명세는 폴더 이름이 아니라 그 세션의 session.yaml 에 적습니다
+         (라벨러가 열 때 틀을 만들어 둡니다).
          상대경로는 저장소 루트(= .git 이 있는 폴더) 기준으로 풀립니다.
          라벨은 각 세션 폴더의 labels/ 에 넣고, data.yaml 을 두 줄짜리로 만들어 두면
          preprocess.py 의 소스로 그대로 읽힙니다:
