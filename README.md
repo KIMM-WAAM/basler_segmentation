@@ -57,7 +57,7 @@ cd training
 uv sync --extra train --extra export      # 첫 설치 (torch cu128 · ultralytics · ONNX · ruff)
 uv run labeller/server.py                 # 라벨러 → http://localhost:8765
 uv run preprocess.py --dataset kimm        # raw → kimm/processed_seg (+ manifest)
-uv run train.py --config train.single.yaml
+uv run train.py --config train.kimm.single.yaml
 ```
 
 학습 실행마다 `run_info.yaml`(코드 커밋 · 데이터 manifest · 시작 가중치 · 환경)과 재현용 `config.yaml`이

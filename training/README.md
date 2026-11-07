@@ -40,7 +40,7 @@ uv sync --extra train --extra export        # torch(cu128) · ultralytics · ONN
 uv run labeller/server.py                   # 라벨러 → http://localhost:8765
 uv run preprocess.py                        # → ../datasets/kimm/processed_seg/
 uv run preprocess.py --task obb             # → ../datasets/kimm/processed_obb/ (OBB 학습할 때만)
-uv run train.py --config train.single.yaml
+uv run train.py --config train.kimm.single.yaml
 uv run eval.py --config eval.single.yaml
 uv run infer.py --dataset kimm --weights runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt --source ../datasets/kimm/raw/261019_161818
 ```
@@ -162,7 +162,7 @@ uv run tools/waiting_to_raw.py --dataset bestfa --dry-run   # 계획만
 | 라벨러 (`uv run labeller/server.py`) | GUI 프리셋 **KIMM** | GUI 프리셋 **BestFA** |
 | seg 전처리 | `uv run preprocess.py --dataset kimm` | `uv run preprocess.py --dataset bestfa` |
 | obb 전처리 | 위 명령에 `--task obb` 추가 | 위 명령에 `--task obb` 추가 |
-| 측정 학습 | `uv run train.py --config train.single.yaml` | `uv run train.py --config train.bestfa.single.yaml` |
+| 측정 학습 | `uv run train.py --config train.kimm.single.yaml` | `uv run train.py --config train.bestfa.single.yaml` |
 | 평가 | `eval.single.yaml` (val) / `eval.final.yaml` (test) | `eval.bestfa.single.yaml` (val만) |
 
 라벨러는 GUI에서 환경을 고른다. 전처리·추론은 `--dataset` 생략 시 KIMM을 사용한다.
@@ -243,7 +243,7 @@ KIMM과 BestFA의 `configs/base/kimm.yaml`, `configs/base/bestfa.yaml`에 `sourc
 
 | config | 모델 | 데이터 | 종료 | 앱 |
 |---|---|---|---|---|
-| `train.single.yaml` | seg | train 세션 / val·test 분리 | early stop (patience 50) | 평가 후 배포 |
+| `train.kimm.single.yaml` | seg | train 세션 / val·test 분리 | early stop (patience 50) | 평가 후 배포 |
 | `train.bestfa.single.yaml` | seg | BestFA train / val 세션 분리 (test 없음) | early stop (patience 50) | 평가 후 배포 |
 
 - **배포 순서**: `single`로 학습 설정을 결정하고 test로 평가한 뒤, `*_all`로 전체 데이터를 학습해 배포한다.
@@ -258,7 +258,7 @@ KIMM과 BestFA의 `configs/base/kimm.yaml`, `configs/base/bestfa.yaml`에 `sourc
   별도 이동·기울이기·원근·좌우 반전은 끈다.
 - **BestFA 증강**: 세션 저장 크롭 위치에서 ±25%p 이동, 회전 ±25°, 확대·축소 0.8~1.2배, 기울이기 ±2°, 원근 0.0002,
   좌우 반전 확률 50%. 좌우 반전의 효과는 val에서 비교한다.
-- **공통 증강**: 상하 반전·mosaic·mixup·copy-paste는 끈다. 밝기 0.25~4배(로그 균등, 확률 100%)와
+- **공통 증강**: 상하 반전·mosaic·mixup·copy-paste는 끈다. 감마 0.5~2.0(로그 균등, 확률 80%) → 밝기 0.5~2배(로그 균등, 확률 80%)를 독립 적용하고,
   블러(확률 20%, sigma 1~3)는 기존 값을 유지한다. preview에서 와이어 끝이 사라지거나 포화되는지 확인한다.
 - **보기**: TensorBoard(`uv run tensorboard --logdir runs` 또는 task) 와, 매 val 마다
   `<실행 폴더>/overlays/epoch_NNN.jpg` (원본 4장 + 증강 12장, 증강 값 표시, 초록 = 정답, 파랑 = 추론 마스크(옅게)). 끝나면 `best.jpg`.
@@ -303,7 +303,7 @@ KIMM과 BestFA의 `configs/base/kimm.yaml`, `configs/base/bestfa.yaml`에 `sourc
 | 바꿀 내용 | 파일 |
 |---|---|
 | 원본 경로, 세션 분할, 크롭, 기준 이미지 | `configs/preprocess.kimm.yaml` / `preprocess.bestfa.yaml` |
-| 시작 모델, 학습 데이터, epochs/patience, 결과 경로 | `configs/train.single.yaml` / `train.bestfa.single.yaml` |
+| 시작 모델, 학습 데이터, epochs/patience, 결과 경로 | `configs/train.kimm.single.yaml` / `train.bestfa.single.yaml` |
 | GPU, batch, 입력 크기, 밝기·블러, ONNX export | `configs/base/train.yaml` |
 | 환경별 회전·이동·스케일·반전 | `configs/base/kimm.yaml` / `base/bestfa.yaml` |
 | 평가 가중치, 데이터, val/test, 이미지 저장 경로 | `configs/eval.*.yaml` |

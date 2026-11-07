@@ -8,7 +8,7 @@
   초록 선 = 정답 폴리곤 (증강 칸은 같은 변환을 적용해 옮긴 것), 그 위가 모델 추론(옅은 마스크·윤곽, 왼쪽 아래 점수)
 
 증강은 학습 config 와 같은 범위(degrees · translate · scale · shear · perspective · hsv_v ·
-brightness · blur)에서 여기서 직접
+gamma · brightness · blur)에서 여기서 직접
 뽑는다 — Ultralytics 의 학습 증강은 뽑힌 값을 밖으로 내주지 않아 화면에 적을 수 없기 때문.
 입력 16장은 첫 epoch 에 한 번 만들고 고정 → epoch 이 지나며 같은 입력에서 추론이 어떻게
 변하는지 본다. 블러는 학습에서 p(기본 20%)로만 들어가 무작위로는 거의 안 보이므로, 각 행의
@@ -30,7 +30,7 @@ import cv2
 import numpy as np
 
 import render
-from augment import log_uniform
+from augment import apply_gamma, log_uniform
 from common import IMG_EXTS
 
 ROWS, AUGS = 4, 3   # 원본 4장 × (원본 + 증강 3) = 4×4
@@ -92,12 +92,18 @@ def _augment(img: np.ndarray, polys: list, hyp: dict, rng: random.Random,
     out = cv2.warpPerspective(img, m, (w, h), borderValue=(PAD, PAD, PAD))
     polys = [cv2.perspectiveTransform(p[None], m)[0] for p in polys]
 
+    gamma = hyp.get("gamma") or {}
+    exponent = 1.0
+    if gamma and rng.random() < float(gamma.get("p", 0.8)):
+        exponent = log_uniform(rng, *map(float, gamma.get("gain", [0.5, 2.0])))
+        out = apply_gamma(out, exponent)
+
     gain = rng.uniform(1 - hyp["hsv_v"], 1 + hyp["hsv_v"])
     bright = hyp.get("brightness") or {}
     if bright and rng.random() < float(bright.get("p", 1.0)):
         gain *= log_uniform(rng, *map(float, bright.get("gain", [0.25, 4.0])))
     out = np.clip(out.astype(np.float32) * gain, 0, 255).astype(np.uint8)
-    text = f"rot {deg:+.1f} s {s:.2f} t {tx:+.2f},{ty:+.2f} v x{gain:.2f}"
+    text = f"rot {deg:+.1f} s {s:.2f} t {tx:+.2f},{ty:+.2f} v x{gain:.2f} gamma {exponent:.2f}"
     if hyp["shear"] or hyp["perspective"]:
         text += f"\nsh {shx:+.1f},{shy:+.1f}  p {px * 1e4:+.1f},{py * 1e4:+.1f}e-4"
 
@@ -127,8 +133,9 @@ def _tile(r, polys: list, text: str) -> np.ndarray:
     return render.put_labels(t, render.labels(r), scale=0.4)
 
 
-def callback(blur: dict | None = None, brightness: dict | None = None, seed: int = 0):
-    """Ultralytics on_fit_epoch_end 콜백. blur · brightness = 학습 config 의 그 블록 (없으면 안 함)."""
+def callback(blur: dict | None = None, brightness: dict | None = None, seed: int = 0,
+             gamma: dict | None = None):
+    """Ultralytics on_fit_epoch_end 콜백. blur · brightness · gamma = 학습 config 의 그 블록 (없으면 안 함)."""
     state: dict = {}
 
     def build(trainer) -> None:
@@ -136,7 +143,7 @@ def callback(blur: dict | None = None, brightness: dict | None = None, seed: int
         hyp = {"degrees": float(a.degrees), "translate": float(a.translate),
                "scale": float(a.scale), "shear": float(a.shear),
                "perspective": float(a.perspective), "hsv_v": float(a.hsv_v),
-               "imgsz": int(a.imgsz), "blur": blur, "brightness": brightness}
+               "imgsz": int(a.imgsz), "blur": blur, "brightness": brightness, "gamma": gamma}
         rng = random.Random(seed)
         inputs = []                       # (이미지 BGR, 정답 폴리곤, 칸 위 문자열)
         for p in _val_images(trainer.data, ROWS):

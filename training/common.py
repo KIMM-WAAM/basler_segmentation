@@ -8,7 +8,7 @@
     넘어가면 의도한 것과 다른 데이터/설정으로 학습해도 알 수 없기 때문입니다.
 
     preprocess.py --dataset kimm                 configs/preprocess.kimm.yaml (환경 기본 kimm)
-    train.py --config train.single.yaml          학습 + ONNX export
+    train.py --config train.kimm.single.yaml          학습 + ONNX export
     eval.py --config eval.single.yaml            체크포인트 평가
 
 어느 쪽이든 읽은 config 경로는 항상 로그 첫 줄에 찍습니다.
@@ -137,7 +137,7 @@ class Stage:
     서브클래스는 `config_glob` 과 `run()` 만 정의하면 됩니다. 단계끼리 import 해서
     한 프로세스 안에서 이어 붙이는 것도 가능합니다:
 
-        Preprocessor().run(); Trainer("train.single.yaml").run()
+        Preprocessor().run(); Trainer("train.kimm.single.yaml").run()
 
     config 인자를 생략하면: configs/ 의 후보가 하나뿐일 때만 자동으로 그 파일을
     읽고, 여럿이면 후보 목록과 함께 거절합니다 — 기본값을 고르는 순간
@@ -165,7 +165,7 @@ class Stage:
                 )
 
         # 경로 그대로(training/ 기준) 먼저, 없으면 configs/<이름> 으로도 찾는다 —
-        # `--config train.single.yaml` 처럼 파일명만 적어도 되게 하기 위함.
+        # `--config train.kimm.single.yaml` 처럼 파일명만 적어도 되게 하기 위함.
         self.config_path = resolve(config_path)
         if not self.config_path.exists():
             alt = CONFIG_DIR / str(config_path)

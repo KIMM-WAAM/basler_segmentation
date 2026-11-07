@@ -1,5 +1,5 @@
 """
-Ultralytics 증강 키로 못 내는 광도 증강 — config 의 `blur` · `brightness` 블록을 albumentations
+Ultralytics 증강 키로 못 내는 광도 증강 — config 의 `blur` · `brightness` · gamma 블록을 albumentations
 목록(Ultralytics `augmentations=` 인자)으로 바꾼다. 이 목록이 기본 변환(Blur/MedianBlur/
 ToGray/CLAHE, 각 1%)을 대체한다. 학습 해상도(imgsz)로 줄인 뒤 RandomHSV 앞에서 적용된다.
 
@@ -39,11 +39,37 @@ class Brightness(A.ImageOnlyTransform):
         return ("gain",)
 
 
+
+def apply_gamma(img: np.ndarray, g: float) -> np.ndarray:
+    """Normalized power curve: gamma < 1 brightens, gamma > 1 darkens."""
+    if img.dtype == np.uint8:
+        lut = np.clip((np.arange(256, dtype=np.float64) / 255.0) ** g * 255.0, 0, 255)
+        return lut.astype(np.uint8)[img]
+    return np.clip(img, 0, 1).__pow__(g).astype(img.dtype)
+
+
+class Gamma(Brightness):
+    """Gamma exponent sampled log-uniformly, independently of brightness."""
+
+    def __init__(self, gain: tuple = (0.5, 2.0), p: float = 0.8):
+        if len(gain) != 2 or not all(math.isfinite(float(v)) for v in gain):
+            raise ValueError("gamma.gain must contain two finite positive values")
+        if not 0 < float(gain[0]) <= float(gain[1]):
+            raise ValueError("gamma.gain requires 0 < min <= max")
+        super().__init__(gain=gain, p=p)
+
+    def apply(self, img: np.ndarray, g: float = 1.0, **params) -> np.ndarray:
+        return apply_gamma(img, g)
+
+
 def albumentations_list(cfg: dict) -> None:
-    """cfg(학습 인자 dict)의 blur · brightness 를 꺼내 cfg["augmentations"] 로."""
+    """cfg(학습 인자 dict)의 blur · brightness · gamma 를 꺼내 cfg["augmentations"] 로."""
     blur = cfg.pop("blur", None)
     bright = cfg.pop("brightness", None)
+    gamma = cfg.pop("gamma", None)
     out = []
+    if gamma:
+        out.append(Gamma(gain=gamma.get("gain", [0.5, 2.0]), p=float(gamma.get("p", 0.8))))
     if bright:
         out.append(Brightness(gain=bright.get("gain", [0.25, 4.0]), p=float(bright.get("p", 1.0))))
     if blur:

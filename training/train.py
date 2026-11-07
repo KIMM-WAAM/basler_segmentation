@@ -16,7 +16,7 @@ config 의 stages 로 무엇을 돌릴지 고릅니다 (블록 자체가 필수 
 재학습 없이 export 만 다시 하려면 train: false, export: true 로 두면 됩니다.
 
 사용법 (training/ 에서, uv sync --extra train --extra export 후):
-    uv run train.py --config train.single.yaml         # KIMM (val/test 분리)
+    uv run train.py --config train.kimm.single.yaml         # KIMM (val/test 분리)
     uv run train.py --config train.bestfa.single.yaml  # BestFA (val/test 분리)
     uv run train.py --config train.seg_all.yaml        # KIMM 배포용 (전체 데이터)
     uv run train.py --config train.bestfa.seg_all.yaml # BestFA 배포용 (전체 데이터)
@@ -38,7 +38,7 @@ class Trainer(Stage):
     """
     파인튜닝과 ONNX export 를 담당하는 단계.
 
-    실행마다 다른 yaml 을 쓰므로(`Trainer("train.single.yaml")`) 후보가 여럿이면
+    실행마다 다른 yaml 을 쓰므로(`Trainer("train.kimm.single.yaml")`) 후보가 여럿이면
     기본값을 고르지 않습니다 — 조용히 엉뚱한 설정으로 학습하는 것을 막기 위함입니다.
     """
 
@@ -154,7 +154,7 @@ class Trainer(Stage):
     @staticmethod
     def apply_photometric(cfg: dict) -> None:
         """
-        config 의 `blur` · `brightness` → Ultralytics `augmentations` (augment.py).
+        config 의 `blur` · `brightness` · `gamma` → Ultralytics `augmentations` (augment.py).
         Ultralytics 에는 블러 키가 없고(기본 Blur 는 p=0.01), hsv_v 는 최대 0~2배라 따로 둔다.
         """
         import augment
@@ -369,7 +369,7 @@ class Trainer(Stage):
             import epoch_overlay
             t = self.cfg.get("train", {})
             model.add_callback("on_fit_epoch_end", epoch_overlay.callback(
-                blur=t.get("blur"), brightness=t.get("brightness")))
+                blur=t.get("blur"), brightness=t.get("brightness"), gamma=t.get("gamma")))
         # cfg 의 나머지 키는 모두 Ultralytics train() 인자와 1:1 대응 (증강 포함)
         results = model.train(trainer=self.crop_trainer(model.task, cfg), **cfg)
 

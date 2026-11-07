@@ -226,14 +226,14 @@
       "type": "pickString",
       "description": "학습 config",
       "options": [
-        { "label": "KIMM — seg, val/test 분리", "value": "train.single.yaml" },
+        { "label": "KIMM — seg, val/test 분리", "value": "train.kimm.single.yaml" },
         { "label": "BestFA — seg, train/val 분리", "value": "train.bestfa.single.yaml" },
         { "label": "KIMM — seg, 전체 데이터 (배포용)", "value": "train.seg_all.yaml" },
         { "label": "KIMM — obb, 전체 데이터 (배포용)", "value": "train.obb_all.yaml" },
         { "label": "BestFA — seg, 전체 데이터 (배포용)", "value": "train.bestfa.seg_all.yaml" },
         { "label": "BestFA — obb, 전체 데이터 (배포용)", "value": "train.bestfa.obb_all.yaml" }
       ],
-      "default": "train.single.yaml"
+      "default": "train.kimm.single.yaml"
     },
     // 아래 파일 목록 드롭다운은 확장 "Command Variable"(rioj7.command-variable) 이 필요 —
     // .vscode/extensions.json 추천 목록에 있음. 목록은 실행할 때마다 디스크에서 새로 찾는다.
