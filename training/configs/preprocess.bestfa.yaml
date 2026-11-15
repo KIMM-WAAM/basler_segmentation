@@ -1,4 +1,4 @@
-# BestFA: 와이어 2개. 세션 분할 설정. 크롭은 각 세션의 crop.yaml에 저장.
+# BestFA: 와이어 2개. 세션 분할 설정. 크롭은 아래 rois (세션 crop.yaml 은 쓰지 않음).
 dataset: bestfa
 wire_count: 2
 reference:
@@ -22,9 +22,16 @@ sources:
     class_map: {wire: wire}
     type: seg
     group_by: session
-    # 세션 통째로 분리. 1층·3층과 새 세션은 train, 2층만 val.
-    val_sessions:
-      - '261026_144002'  # layer 2
+    # 세션 통째로 분리 (seed 고정 섞기 → 장수 비율에 가깝게). 예전 분할(261026_144002 = val)은
+    # 그 세션들이 raw 에 다시 들어오면 val_sessions 로 되돌린다 — 없는 세션을 적으면 전처리가 멈춤.
+    val_ratio: 0.15
     test_ratio: 0.0
     oversample: 1
     resize: null
+    # 이미지 한 장 → 640×640 창 두 개 (와이어 하나씩, 같은 모델로 따로 추론). 11/11~ 구도 고정이라
+    # 모든 세션에 같은 창. 위치 규약은 crop 과 같다 (0% = 왼쪽/위 끝, 100% = 오른쪽/아래 끝).
+    # 2448×2048 원본 기준 r1 = x 723~1363, r2 = x 1338~1978, 둘 다 y 211~851. 자동 라벨 12,488장에서
+    # seg 는 전부 제 창 안 (오른쪽 와이어는 r2 왼쪽 경계에서 ~75px — 학습 이동 ±5%p = ±90px).
+    rois:
+      - {name: r1, width: 640, height: 640, center_x: 40, center_y: 15}   # 왼쪽 와이어
+      - {name: r2, width: 640, height: 640, center_x: 74, center_y: 15}   # 오른쪽 와이어

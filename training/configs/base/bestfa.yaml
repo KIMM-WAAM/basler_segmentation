@@ -2,8 +2,10 @@
 base: train.yaml
 source_crop:
   enabled: true
-  offset_x: [-25, 25]
-  offset_y: [-25, 25]
+  # 640 ROI 기준 ±5%p = 가로 ±90px · 세로 ±70px ((2448−640)·5%, (2048−640)·5%). ±25%p 는
+  # 와이어가 창 밖으로 자주 나간다 (preprocess.bestfa.yaml 의 rois 참고).
+  offset_x: [-5, 5]
+  offset_y: [-5, 5]
 train:
   degrees: 25.0
   translate: 0.0  # 세션 원본 크롭 이동과 중복하지 않음
