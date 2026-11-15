@@ -11,8 +11,25 @@ BaslerLiveView.exe --dataset bestfa
 # 카메라 없이 확인: 위 명령에 --emulate 추가
 ```
 
-BestFA는 크롭을 끈 상태로 시작한다. 전용 기준 이미지와 학습 모델을 준비한 뒤 해당 설정에 연결한다.
+BestFA는 `<Rois>`의 640×640 창 두 개(L = 40%,15%, R = 74%,15%)를 프레임마다 따로 추론한다 — 창 하나에
+와이어 하나, 같은 모델 (`MaxDetections` 는 창마다 적용, 1). 학습 쪽 `training/configs/preprocess.bestfa.yaml`의
+`rois`와 같은 값이어야 학습 때와 같은 화각을 본다. 기준 오버레이는 11/11~ 구도의 기준 와이어(투명 바탕).
 BestFA 모델 배포 시 `weights/deploy.yaml`에 `bestfa-yolo26s-seg.onnx`를 추가한다.
+
+### 고정 추론 창 (`<Rois>`)
+
+```xml
+<Rois>
+  <Roi Name="L" Width="640" Height="640" CenterX="40" CenterY="15"/>
+  <Roi Name="R" Width="640" Height="640" CenterX="74" CenterY="15"/>
+</Rois>
+```
+
+- 하나라도 있으면(그리고 `hardware_roi=false`면) 단일 `<Crop>` 창과 크롭 툴바는 쓰지 않고, 창마다 크롭해 차례로
+  추론한 뒤 결과를 각 창 자리에 되돌려 그린다 (겹치면 뒤 창이 위). 화면에는 창마다 빨간 네모 + 이름.
+- 검출 이름은 `wire L` / `wire R`, 정보 글상자에 창마다 점수 · 와이어 끝 좌표(crop / full). 못 찾으면 `L: no detection`.
+- 크기는 0(전체)을 허용하지 않고, 값이 빠지거나 범위를 벗어난 창은 무시한다. `hardware_roi=true`면 쓰지 않는다
+  (카메라가 창 하나만 보내므로).
 
 ## 구성
 

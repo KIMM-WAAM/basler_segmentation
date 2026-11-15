@@ -1,8 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Xml.Linq;
 
 namespace BaslerLiveView;
+
+/// <summary>One fixed inference window (<c>&lt;Rois&gt;&lt;Roi .../&gt;</c>): size in pixels and
+/// position 0–100% per axis — the same convention as <see cref="FrameCropper"/> and
+/// training/configs/preprocess.*.yaml <c>rois</c>. <see cref="Name"/> labels its detections
+/// ("wire L").</summary>
+public sealed record RoiConfig(string Name, int Width, int Height, double CenterX, double CenterY);
 
 /// <summary>
 /// App-level camera configuration loaded from <c>config\config.xml</c> next to
@@ -48,6 +55,13 @@ public sealed class CameraConfig
     /// 50 = centered). Adjustable live from the toolbar sliders.</summary>
     public double CropCenterX { get; set; } = 50;
     public double CropCenterY { get; set; } = 50;
+
+    /// <summary>Fixed inference windows. When any are configured (and hardware ROI is off),
+    /// each frame is cut into these windows and every window is run through the model on its
+    /// own — e.g. BestFA: two 640×640 windows, one wire each, matching the training samples
+    /// that training/preprocess.py makes from <c>rois</c>. The single <c>&lt;Crop&gt;</c> window
+    /// and its toolbar are then unused. <see cref="MaxDetections"/> applies per window.</summary>
+    public List<RoiConfig> Rois { get; } = new();
 
     /// <summary>Show the reference cutout (the fixed metal tube + wire, cut out of
     /// datasets/kimm/reference/reference.png by training/tools/make_reference_cutout.py) on top of the live
@@ -152,6 +166,25 @@ public sealed class CameraConfig
 
                 var cy = (double?)crop.Element("CenterY");
                 if (cy is >= 0 and <= 100) cfg.CropCenterY = cy.Value;
+            }
+
+            var rois = root.Element("Rois");
+            if (rois != null)
+            {
+                foreach (var roi in rois.Elements("Roi"))
+                {
+                    // A window must be fully specified; an incomplete or out-of-range one is
+                    // skipped rather than guessed (unlike <Crop>, 0 = full extent is not allowed).
+                    var name = ((string?)roi.Attribute("Name"))?.Trim();
+                    var w = (int?)roi.Attribute("Width");
+                    var h = (int?)roi.Attribute("Height");
+                    var cx = (double?)roi.Attribute("CenterX");
+                    var cy = (double?)roi.Attribute("CenterY");
+                    if (string.IsNullOrEmpty(name) || w is not > 0 || h is not > 0
+                        || cx is not (>= 0 and <= 100) || cy is not (>= 0 and <= 100))
+                        continue;
+                    cfg.Rois.Add(new RoiConfig(name, w.Value, h.Value, cx.Value, cy.Value));
+                }
             }
 
             var overlay = root.Element("ReferenceOverlay");

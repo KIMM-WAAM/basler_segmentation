@@ -4,13 +4,23 @@
   <Camera><FrameRate>80</FrameRate><hardware_roi>false</hardware_roi></Camera>
   <Inference>
     <Model>bestfa-yolo26s-seg.onnx</Model>
-    <MaxDetections>2</MaxDetections><Confidence>0.25</Confidence>
+    <!-- 아래 Rois 창마다 따로 적용 — 창 하나에 와이어 하나. -->
+    <MaxDetections>1</MaxDetections><Confidence>0.25</Confidence>
   </Inference>
+  <!-- 추론 창 두 개 (640×640, 와이어 하나씩, 같은 모델로 따로 추론). training/configs/preprocess.bestfa.yaml
+       의 rois 와 같은 값이어야 학습 때와 같은 화각을 봅니다 (위치 규약도 같음: 0% = 왼/위 끝).
+       Name 은 검출 표시 이름 (wire L / wire R). hardware_roi=true 면 쓰지 않습니다. -->
+  <Rois>
+    <Roi Name="L" Width="640" Height="640" CenterX="40" CenterY="15"/>
+    <Roi Name="R" Width="640" Height="640" CenterX="74" CenterY="15"/>
+  </Rois>
+  <!-- Rois 가 있으면 이 단일 크롭과 크롭 툴바는 쓰지 않습니다. -->
   <Crop>
     <Enabled>false</Enabled><Width>0</Width><Height>0</Height>
     <CenterX>50</CenterX><CenterY>50</CenterY>
   </Crop>
   <ReferenceOverlay>
+    <!-- 11/11~ 구도의 기준 와이어 (training 자동 라벨 126세션의 중앙값). 투명 바탕 RGBA. -->
     <Enabled>true</Enabled>
     <Path>datasets/bestfa/reference/reference_cutout.png</Path><Opacity>0.35</Opacity>
     <OutlinePath>datasets/bestfa/reference/reference_outline.png</OutlinePath><OutlineOpacity>0.9</OutlineOpacity>
