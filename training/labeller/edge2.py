@@ -38,9 +38,8 @@ import math
 from pathlib import Path
 from statistics import median
 
-from PIL import Image, ImageFilter
-
 from edge import _exit_distance, obb_pose
+from PIL import Image, ImageFilter
 
 BLUR = 2
 REF_PX = (8, 60)
