@@ -39,6 +39,7 @@ from PIL import Image, ImageDraw, ImageFilter
 HERE = Path(__file__).resolve().parents[1]                      # training/
 sys.path[:0] = [str(HERE), str(HERE / "labeller")]
 from edge2 import find_tip2  # noqa: E402
+from server import seg_score_entry, update_seg_scores  # noqa: E402 — 라벨러의 seg 판정 기록 (seg_scores.json)
 
 RAW = HERE.parent / "datasets" / "bestfa" / "raw"
 OUT = HERE.parent / "datasets" / "bestfa" / "auto_label"
@@ -266,6 +267,7 @@ def label_session(session: Path, write: bool) -> dict:
     summary["left_refined"] = axes["left"].get("refined", "")
     rows = []
     counts = Counter()
+    scores = {}                                                  # seg 를 쓴 장의 판정 → seg_scores.json
     if all(a["ok"] for a in axes.values()):
         for fp in frames:
             lbl = session / "labels" / f"{fp.stem}.txt"
@@ -276,12 +278,13 @@ def label_session(session: Path, write: bool) -> dict:
                 continue
             with Image.open(fp) as im:
                 w, h = im.size
-            boxes, polys, stats = [], [], []
+            boxes, polys, stats, results = [], [], [], []
             for name in ("left", "right"):
                 ax = axes[name]
                 long_box = obb_corners(ax, 900.0)                # 끝을 넉넉히 지나도록 — edge2 탐색 범위
                 r = find_tip2(fp, [[x / w, y / h] for x, y in long_box])
                 stats.append(r["status"])
+                results.append(r)
                 tip = r.get("tip") if r["status"] != "no_tip" else None
                 length = (tip + LENGTH_MARGIN) if tip else (ax["ymax"] - ax["top"]) / (1 / math.hypot(ax["b"], 1))
                 boxes.append(obb_corners(ax, length))
@@ -298,6 +301,9 @@ def label_session(session: Path, write: bool) -> dict:
                     seg.parent.mkdir(exist_ok=True)
                     seg.write_text("".join(f"{CLASS_ID} {fmt_points(p, w, h)}\n" for p in polys),
                                    encoding="utf-8")
+                    scores[fp.name] = seg_score_entry({"method": "2", "status": "ok", "wires": results})
+        if write:
+            update_seg_scores(session, scores)
     else:
         counts["session_skipped"] = len(frames)
     summary.update({k: counts.get(k, 0) for k in ("obb+seg", "obb_only", "kept_existing", "session_skipped")})

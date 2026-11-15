@@ -314,6 +314,7 @@
   <div id="film-grip" title="위아래로 끌어 목록 높이 조절 · 더블클릭 = 기본 높이"></div>
   이 세션 목록 — 초록 = 라벨됨 · 아래 줄: <span style="color:var(--seg)">경계 OK</span> /
   <span style="color:#f0c26a">낮음</span> / <span style="color:#e05050">못 찾음</span>
+  (방금 계산한 결과, 없으면 저장된 seg 의 저장 당시 판정 — 칸에 마우스를 올리면 지표)
   <div id="film"></div>
 </div>
 
@@ -522,13 +523,40 @@ function renderFilm() {
     const f = files[i];
     const d = document.createElement("div");
     const e = edges.get(f.name);
+    // 아래 줄 색 = 이 브라우저에서 계산한 경계 판정, 없으면 저장된 seg 의 판정(seg_scores.json)
+    const computed = e && e.status !== "saved";
+    const status = computed ? e.status : (f.seg && f.seg_info ? f.seg_info.status : null);
     d.className = "cell" + (f.labeled ? " labeled" : "") + (i === idx ? " current" : "") +
-                  (e && EDGE_CLASS[e.status] ? " " + EDGE_CLASS[e.status] : "");
+                  (status && EDGE_CLASS[status] ? " " + EDGE_CLASS[status] : "");
     d.textContent = k + 1;
-    d.title = f.name;
+    d.title = f.name + (computed ? `\n경계 계산: ${e.status}` + (f.seg ? " · seg 저장됨" : "")
+                                 : f.seg ? `\nseg 저장됨 — ${segInfoText(f.seg_info)}` : "");
     d.onclick = () => goTo(i);
     film.appendChild(d);
   });
+}
+
+/** 저장된 seg 의 판정 문구 — "edge 2 · 와이어 1: ok (둘레 100% · 튐 0.12 · …) · 와이어 2: …". */
+function segInfoText(info) {
+  if (!info) return "판정 기록 없음 (기록 기능 전에 저장된 seg)";
+  const wire = (w, i) => {
+    const s = w.score || {};
+    const detail = s.arc != null
+      ? `둘레 ${Math.round(s.arc * 100)}% · 튐 ${s.radius} · 옆면 ${s.side}px · 매끄러움 ${s.smooth}px`
+      : w.columns ? `띠 ${w.inliers}/${w.columns} · 잔차 ${w.rms == null ? "-" : Number(w.rms).toFixed(1)}px` : "";
+    const fail = s.fail && s.fail.length ? ` — ${s.fail.join(", ")}` : "";
+    return `와이어 ${i + 1}: ${w.status}${detail ? ` (${detail})` : ""}${fail}`;
+  };
+  return `${EDGE_METHOD_NAME[info.method] || info.method || "?"} · ` +
+         (info.wires && info.wires.length ? info.wires.map(wire).join(" · ") : info.status);
+}
+
+/** seg 를 저장할 때 같이 보내는 판정 — 그 폴리곤을 낸 경계 계산 결과 (저장된 seg 를 다시 저장하면 없음). */
+function segScore(r) {
+  if (!r || r.method === "saved") return null;
+  return { method: r.method, status: r.status,
+           wires: (r.instances || [r]).map(w => ({ status: w.status, score: w.score || null,
+                                                    inliers: w.inliers, columns: w.columns, rms: w.rms, tip: w.tip })) };
 }
 
 // 목록 높이 조절 — 목록은 화면 아래에 고정이라, 손잡이를 위로 끌면 이미지 아래쪽을 덮으며
@@ -801,13 +829,29 @@ function edited() {
 
 // ── 크롭 — preprocess.py crop_rect() 와 같은 공식 · 앱 FrameCropper 와 같은 % 규약 ──
 
-function cropRect(W, H) {
-  if (!crop || !crop.enabled || crop.auto) return null;
+function windowRect(c, W, H) {
   const size = (want, src) => { want = want || 0; return want <= 0 ? src : Math.min(want, src); };
-  const w = size(crop.width, W), h = size(crop.height, H);
-  const cx = Math.min(Math.max(crop.center_x, 0), 100), cy = Math.min(Math.max(crop.center_y, 0), 100);
+  const w = size(c.width, W), h = size(c.height, H);
+  const cx = Math.min(Math.max(c.center_x, 0), 100), cy = Math.min(Math.max(c.center_y, 0), 100);
   const x = Math.round((W - w) * cx / 100), y = Math.round((H - h) * cy / 100);
   return [x, y, w, h];
+}
+
+function cropRect(W, H) {
+  if (!crop || !crop.enabled || crop.auto || crop.rois) return null;
+  return windowRect(crop, W, H);
+}
+
+/** 화면에 그릴 창들 — rois 가 있으면 그 창 전부(모든 세션 공통), 아니면 세션 크롭 하나. [{rect, text}] */
+function cropWindows(W, H) {
+  if (crop && crop.rois) {
+    return crop.rois.map(r => {
+      const rect = windowRect(r, W, H);
+      return { rect, text: `${r.name}  ${rect[2]}×${rect[3]}  (${r.center_x}%, ${r.center_y}%)` };
+    });
+  }
+  const rect = cropRect(W, H);
+  return rect ? [{ rect, text: `${rect[2]}×${rect[3]}  (${crop.center_x.toFixed(0)}%, ${crop.center_y.toFixed(0)}%)` }] : [];
 }
 
 function setCropUI() {
@@ -818,6 +862,21 @@ function setCropUI() {
   if (!crop) {
     fs.disabled = true;
     note.textContent = `${cfg.config} 에 ${cfg.source} 소스가 없어 크롭을 조절할 수 없습니다.`;
+    return;
+  }
+  if (crop.rois) {
+    // 전처리가 세션 crop.yaml 대신 설정의 rois 를 모든 세션에 쓴다 — 여기서는 보여 주기만
+    fs.disabled = true;
+    document.getElementById("crop-config").textContent = `${cfg.config} 의 rois`;
+    document.getElementById("crop-src").textContent = "모든 세션 공통";
+    note.textContent = `전처리는 이 창 ${crop.rois.length}개(${crop.rois.map(r => r.name).join(" · ")})로 이미지마다 ` +
+      `샘플을 만듭니다 — 세션 crop.yaml 은 쓰지 않습니다. 창을 바꾸려면 ${cfg.config} 의 rois 와 ` +
+      `앱 config.bestfa.xml 의 <Rois> 를 같이 고치세요.`;
+    document.getElementById("crop-on").checked = true;
+    for (const id of ["crop-w", "crop-h"]) document.getElementById(id).value = "";
+    document.getElementById("crop-xv").textContent = "";
+    document.getElementById("crop-yv").textContent = "";
+    document.getElementById("crop-state").textContent = "";
     return;
   }
   fs.disabled = !!crop.auto;
@@ -898,11 +957,13 @@ async function saveCrop() {
 // 이 소스는 type: obb 라 클리핑 결과가 그대로 나가므로, 꼭짓점이 4개가 아닌 라벨이
 // 조용히 processed/ 에 남습니다(면적이 min_area 미만이면 인스턴스째 사라짐).
 // → 창 밖으로 나간 꼭짓점 수를 세어 경고합니다.
+// rois 면 와이어마다 가장 많이 들어가는 창 기준 (창 하나에 와이어 하나).
 function outsideCount() {
-  const rect = cropRect(img.naturalWidth, img.naturalHeight);
-  if (!rect || !box) return 0;
-  const [x, y, w, h] = rect;
-  return boxes.flatMap(corners).filter(([px, py]) => px < x || py < y || px > x + w || py > y + h).length;
+  const wins = cropWindows(img.naturalWidth, img.naturalHeight);
+  if (!wins.length || !box) return 0;
+  const outside = (pts, [x, y, w, h]) =>
+    pts.filter(([px, py]) => px < x || py < y || px > x + w || py > y + h).length;
+  return boxes.reduce((sum, b) => sum + Math.min(...wins.map(win => outside(corners(b), win.rect))), 0);
 }
 
 function renderWarn() {
@@ -973,19 +1034,18 @@ function composeBackground() {
 
 /** 앱 UpdateCropOverlay 와 같은 모양: 어두운 밑줄 + 빨간 선 + 좌상단 라벨. */
 function drawCrop() {
-  const rect = cropRect(img.naturalWidth, img.naturalHeight);
-  if (!rect) return;
-  const [x, y, w, h] = rect.map(v => v * scale);
-  ctx.save();
-  ctx.strokeStyle = "rgba(0,0,0,.69)"; ctx.lineWidth = 4; ctx.strokeRect(x, y, w, h);
-  ctx.strokeStyle = "#FF3B30"; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
-  const text = `${rect[2]}×${rect[3]}  (${crop.center_x.toFixed(0)}%, ${crop.center_y.toFixed(0)}%)`;
-  ctx.font = "bold 11px 'Segoe UI', sans-serif";
-  const tw = ctx.measureText(text).width + 8, th = 16;
-  const ty = y - th - 2 >= 0 ? y - th - 2 : y + 2;
-  ctx.fillStyle = "rgba(0,0,0,.69)"; ctx.fillRect(x, ty, tw, th);
-  ctx.fillStyle = "#FF6B60"; ctx.textBaseline = "middle"; ctx.fillText(text, x + 4, ty + th / 2);
-  ctx.restore();
+  for (const { rect, text } of cropWindows(img.naturalWidth, img.naturalHeight)) {
+    const [x, y, w, h] = rect.map(v => v * scale);
+    ctx.save();
+    ctx.strokeStyle = "rgba(0,0,0,.69)"; ctx.lineWidth = 4; ctx.strokeRect(x, y, w, h);
+    ctx.strokeStyle = "#FF3B30"; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+    ctx.font = "bold 11px 'Segoe UI', sans-serif";
+    const tw = ctx.measureText(text).width + 8, th = 16;
+    const ty = y - th - 2 >= 0 ? y - th - 2 : y + 2;
+    ctx.fillStyle = "rgba(0,0,0,.69)"; ctx.fillRect(x, ty, tw, th);
+    ctx.fillStyle = "#FF6B60"; ctx.textBaseline = "middle"; ctx.fillText(text, x + 4, ty + th / 2);
+    ctx.restore();
+  }
 }
 
 /** 길이 손잡이 위치 — 와이어 끝 변의 가운데 (캔버스 px). */
@@ -1145,7 +1205,7 @@ function renderEdgeInfo() {
   const r = f && edges.get(f.name);
   if (!r) { el.textContent = ""; return; }
   if (r.method === "saved" && !labelDirty) {
-    el.textContent = `저장된 seg · 와이어 ${r.instances.length}개 (재계산하지 않음)`;
+    el.textContent = `저장된 seg · 와이어 ${r.instances.length}개 · 저장 당시 판정: ${segInfoText(f.seg_info)}`;
     return;
   }
   if (!saved) { el.textContent = "박스를 바꿔서 경계가 맞지 않습니다 — 저장 후 다시 계산하세요."; return; }
@@ -1278,11 +1338,11 @@ function edgePolygons(result) {
 async function saveSeg(names) {
   if (!names.length) return;
   try {
+    const scores = new Map(names.map(n => [n, segScore(edges.get(n))]));
     const res = await post("/api/seg", {
-      items: names.map(n => ({ name: n, polygons: edgePolygons(edges.get(n)) })),
+      items: names.map(n => ({ name: n, polygons: edgePolygons(edges.get(n)), score: scores.get(n) })),
     });
-    const done = new Set(names);
-    for (const f of files) if (done.has(f.name)) f.seg = true;
+    for (const f of files) if (scores.has(f.name)) { f.seg = true; f.seg_info = scores.get(f.name); }
     renderLists();
     draw();
     setStatus(`seg 저장: ${res.written}장 → labels_seg/`);
@@ -1350,6 +1410,7 @@ async function saveCurrent() {
     await post("/api/label", { name, instances: normalizedBoxes() });
     files[idx].labeled = true;
     files[idx].seg = false;            // 서버가 낡은 seg 를 지웠다 (OBB 가 바뀜)
+    files[idx].seg_info = null;
     saved = true;
     labelDirty = false;
     edges.delete(name);
@@ -1367,6 +1428,7 @@ async function clearCurrent() {
     await post("/api/label", { name, points: null });
     files[idx].labeled = false;
     files[idx].seg = false;
+    files[idx].seg_info = null;
     resetAllWires();
     saved = false;
     labelDirty = false;
