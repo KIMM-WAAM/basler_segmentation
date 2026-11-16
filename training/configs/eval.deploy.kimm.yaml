@@ -1,0 +1,13 @@
+# KIMM 배포 모델 확인: val 세션. 학습에 포함된 데이터라 점수는 독립 평가가 아니다 — 그림으로 동작만 확인.
+dataset: kimm
+weights: runs/kimm/segment/kimm-yolo26s-seg-deploy/weights/best.pt  # 타임스탬프 생략: 가장 최근 실행
+data: ../datasets/kimm/processed_seg/data.yaml
+split: val
+imgsz: 640
+device: "0"
+visualize:
+  enabled: true
+  out: eval/kimm
+  count: 20  # 0: split 전체
+  conf: 0.25  # 시각화할 예측의 최소 점수
+  baseline: true  # 와이어 끝 높이 표시

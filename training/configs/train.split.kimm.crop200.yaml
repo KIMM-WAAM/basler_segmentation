@@ -1,0 +1,18 @@
+# KIMM 측정용 실험: 원본 크롭 이동 ±25%p + 200 epoch + 강한 감마.
+# 11/12 위치 평가: 기본 증강(A·C)은 앱 크롭 위치(config.xml 40%/40%)에서 mask mAP50-95 0.00~0.01 로
+# 무너졌고, ±25%p 모델(B)은 0.53 을 유지했다. B 는 60 epoch 끝에도 train loss 가 내려가는 중이라
+# 길게 학습해 상한을 확인한다.
+base: train.split.kimm.yaml
+
+source_crop:
+  enabled: true
+  offset_x: [-25, 25]
+  offset_y: [-25, 25]
+
+train:
+  epochs: 200
+  translate: 0.0  # 원본 크롭 이동과 중복하지 않음 (train.py 가 강제)
+  gamma:  # 감마 배율 (로그 균등). 0.2 쪽은 크게 밝아진다
+    p: 0.8
+    gain: [0.2, 2.0]
+  name: kimm-yolo26s-seg-split-crop200

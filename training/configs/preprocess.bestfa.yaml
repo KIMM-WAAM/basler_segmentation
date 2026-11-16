@@ -1,6 +1,9 @@
 # BestFA: 와이어 2개. 세션 분할 설정. 크롭은 각 세션의 crop.yaml에 저장.
 dataset: bestfa
 wire_count: 2
+# 세션 crop.yaml 의 ROI 수 — ROI 하나에 와이어 하나. 전처리는 원본 한 장에서 ROI 마다 샘플을
+# 하나씩 만들고(_r1, _r2), 앱도 ROI 마다 따로 추론한다. ROI 는 라벨러에서 세션마다 저장.
+roi_count: 2
 reference:
   directory: ../datasets/bestfa/reference
   opacity: 0.35
@@ -22,9 +25,30 @@ sources:
     class_map: {wire: wire}
     type: seg
     group_by: session
-    # 세션 통째로 분리. 1층·3층과 새 세션은 train, 2층만 val.
+    # 세션 통째로 분리. 2026-11-16 새 데이터(141세션, layer 16~157): 인접 layer 끼리는 거의 같은 장면이라
+    # 흩어 뽑지 않고 마지막 묶음(11/13 오후, layer 138~157)을 val 로 — 앞으로 쌓일 layer 를 예측하는 상황.
+    # seg 1,710장 (14.6%). 예전 데이터(261026_*) 때의 val: 261026_144002 (layer 2).
     val_sessions:
-      - '261026_144002'  # layer 2
+      - '261113_142426'  # layer 138
+      - '261113_143234'  # layer 139 (seg 없음 — 전처리에서 0장)
+      - '261113_143349'  # layer 140
+      - '261113_144201'  # layer 141
+      - '261113_144950'  # layer 142
+      - '261113_145743'  # layer 143
+      - '261113_150642'  # layer 144
+      - '261113_151433'  # layer 145
+      - '261113_152230'  # layer 146
+      - '261113_153201'  # layer 147
+      - '261113_153959'  # layer 148
+      - '261113_154803'  # layer 149
+      - '261113_155606'  # layer 150
+      - '261113_160413'  # layer 151
+      - '261113_161220'  # layer 152
+      - '261113_162029'  # layer 153
+      - '261113_162840'  # layer 154 (seg 6장)
+      - '261113_162926'  # layer 155
+      - '261113_163718'  # layer 156
+      - '261113_164526'  # layer 157
     test_ratio: 0.0
     oversample: 1
     resize: null

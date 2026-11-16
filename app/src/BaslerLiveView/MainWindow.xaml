@@ -36,6 +36,10 @@
                     <CheckBox x:Name="CropCheck" Content="Crop" Foreground="#DDD" VerticalAlignment="Center"
                               ToolTip="Outline the training/segmentation window on the live view"
                               Checked="Crop_Changed" Unchecked="Crop_Changed"/>
+                    <!-- Several ROIs (config.xml <Crop><Roi>): pick which one the controls edit. -->
+                    <ComboBox x:Name="RoiCombo" Width="72" Margin="8,0,0,0" VerticalAlignment="Center"
+                              Visibility="Collapsed" SelectionChanged="Roi_Changed"
+                              ToolTip="ROI the size/position controls edit — inference runs on every ROI"/>
                     <TextBox x:Name="CropWidthBox" Width="52" Margin="8,0,0,0" VerticalAlignment="Center"
                              TextAlignment="Right" TextChanged="CropText_Changed"/>
                     <TextBlock Text="×" Foreground="#DDD" VerticalAlignment="Center" Margin="4,0"/>
@@ -80,15 +84,8 @@
             <!-- Green outline of the same silhouette, kept crisper than the fill. -->
             <Image x:Name="RefOutlineImage" Stretch="Uniform" IsHitTestVisible="False"
                    RenderOptions.BitmapScalingMode="LowQuality" Visibility="Collapsed"/>
-            <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False">
-                <!-- Dark under-stroke first, so the bright outline stays readable on
-                     both blown-out and near-black backgrounds. -->
-                <Rectangle x:Name="CropRectShadow" Stroke="#B0000000" StrokeThickness="4" Visibility="Collapsed"/>
-                <Rectangle x:Name="CropRectLine" Stroke="#FF3B30" StrokeThickness="2" Visibility="Collapsed"/>
-                <Border x:Name="CropRectLabelBox" Background="#B0000000" Padding="4,1" Visibility="Collapsed">
-                    <TextBlock x:Name="CropRectLabel" Foreground="#FF6B60" FontSize="11" FontWeight="Bold"/>
-                </Border>
-            </Canvas>
+            <!-- Crop window outlines, one per ROI — created in code (MainWindow.RoiOutline). -->
+            <Canvas x:Name="OverlayCanvas" IsHitTestVisible="False"/>
             <!-- Inference result (class · score · wire tip), pinned top-left of the view at a
                  fixed screen size — burnt into the crop it got too small once letterboxed. -->
             <Border x:Name="InferInfoBox" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="8"

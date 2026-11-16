@@ -51,6 +51,12 @@
          소프트웨어 모드에서는 실행 중 툴바 슬라이더로 조절할 수 있습니다. -->
     <CenterX>40</CenterX>
     <CenterY>40</CenterY>
+    <!-- ROI 여러 개 (BestFA: ROI 하나에 와이어 하나): <Roi> 를 ROI 마다 하나씩 두면 위의 한 창
+         대신 그것들을 쓰고, 추론도 ROI 마다 따로 돌며 MaxDetections 는 ROI 당 개수가 됩니다.
+         왼쪽부터 라벨러의 ROI 1, 2 와 같은 값으로 (config.bestfa.xml 참고). 툴바의 ROI 목록으로
+         고른 ROI 를 조절합니다. ROI 가 여럿이면 hardware_roi 는 무시됩니다.
+    <Roi><Width>640</Width><Height>640</Height><CenterX>32.6</CenterX><CenterY>0</CenterY></Roi>
+    <Roi><Width>640</Width><Height>640</Height><CenterX>60.8</CenterX><CenterY>0</CenterY></Roi> -->
   </Crop>
   <ReferenceOverlay>
     <!-- 기구부(금속 튜브 + 와이어) 누끼 오버레이. 카메라가 eye-in-hand 라서

@@ -1,0 +1,8 @@
+# KIMM 배포용: train+val+test 전체로 학습 + ONNX export. 앱 반영은 archive.py → weights/deploy.yaml.
+# epochs = train.split.kimm 의 best epoch (11/09 실행: 41). val 이 학습에 포함되므로 best 선택은 의미 없음.
+base: base/train.kimm.yaml
+
+train:
+  data: ../datasets/kimm/processed_seg/data.all.yaml
+  epochs: 41
+  name: kimm-yolo26s-seg-deploy

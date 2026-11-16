@@ -37,8 +37,27 @@ def check_source_dataset(source: Path, dataset: str) -> None:
             raise ValueError(f"입력은 {candidate} 데이터입니다. --dataset {candidate} 를 사용하세요")
 
 
+WINDOW_KEYS = ("width", "height", "center_x", "center_y")
+
+
+def _check_window(path: Path, where: str, window: dict) -> None:
+    for key in WINDOW_KEYS:
+        value = window.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError(f"{path}: {where}{key}에 유한한 숫자가 필요합니다")
+        if value < 0 or (key.startswith("center_") and value > 100):
+            raise ValueError(f"{path}: {where}{key} 범위가 잘못되었습니다")
+
+
 def session_crop(session: Path) -> dict:
-    """세션별 크롭 필수. 공통 config나 묵시적 원본 사용으로 대체하지 않는다."""
+    """
+    세션별 크롭 필수. 공통 config나 묵시적 원본 사용으로 대체하지 않는다.
+
+    창 하나:   enabled · width · height · center_x · center_y            (KIMM)
+    ROI 여러 개: enabled · rois: [{width, height, center_x, center_y}, …]  (BestFA — ROI 하나에
+               와이어 하나. 전처리가 ROI 마다 학습 샘플을 따로 만들고, 앱도 ROI 마다 추론한다)
+    ROI 별 창으로 펼치는 것은 crop_windows.
+    """
     path = Path(session) / "crop.yaml"
     if not path.is_file():
         raise ValueError(f"세션 크롭 설정이 없습니다: {path}. 라벨러에서 크롭을 저장하세요 "
@@ -46,18 +65,37 @@ def session_crop(session: Path) -> dict:
     crop = load_yaml(path)
     if not isinstance(crop, dict) or not isinstance(crop.get("enabled"), bool):
         raise ValueError(f"{path}: enabled는 true 또는 false로 지정하세요")
-    if crop["enabled"] and not (crop.get("auto_crop") or {}).get("enabled"):
-        for key in ("width", "height", "center_x", "center_y"):
-            value = crop.get(key)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ValueError(f"{path}: {key}에 유한한 숫자가 필요합니다")
-            if value < 0 or (key.startswith("center_") and value > 100):
-                raise ValueError(f"{path}: {key} 범위가 잘못되었습니다")
+    auto = bool((crop.get("auto_crop") or {}).get("enabled"))
+    rois = crop.get("rois")
+    if rois is not None:
+        if not isinstance(rois, list) or not rois or not all(isinstance(r, dict) for r in rois):
+            raise ValueError(f"{path}: rois는 {{width, height, center_x, center_y}} 항목의 목록이어야 합니다")
+        if auto:
+            raise ValueError(f"{path}: rois와 auto_crop은 함께 쓸 수 없습니다")
+    if crop["enabled"] and not auto:
+        if rois is None:
+            _check_window(path, "", crop)
+        else:
+            for i, roi in enumerate(rois):
+                _check_window(path, f"rois[{i}].", roi)
     return crop
 
 
+def crop_windows(crop: dict) -> list[dict]:
+    """
+    session_crop 결과 → ROI 마다 창 하나짜리 크롭 설정 목록 (preprocess.crop_rect 가 그대로 읽는 모양).
+    rois 가 없거나 크롭이 꺼져 있으면 [crop] 한 개. min_area 등 공통 키는 ROI 마다 복사한다.
+    """
+    rois = crop.get("rois")
+    base = {k: v for k, v in crop.items() if k != "rois"}
+    if not crop.get("enabled") or not rois:
+        return [base]
+    common = {k: v for k, v in base.items() if k not in WINDOW_KEYS}
+    return [{**common, **{k: roi[k] for k in WINDOW_KEYS}} for roi in rois]
+
+
 def default_crop(dataset: str = "kimm", input_path: Path | None = None) -> dict | None:
-    """자동 추론 크롭: 입력 세션의 명시적 설정만 사용한다."""
+    """자동 추론 크롭: 입력 세션의 명시적 설정만 사용한다 (ROI 여러 개면 crop_windows 로 펼친다)."""
     dataset_root(dataset)
     if input_path is None:
         raise ValueError("자동 크롭은 입력 세션 경로가 필요합니다")

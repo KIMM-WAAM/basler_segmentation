@@ -11,7 +11,8 @@ BaslerLiveView.exe --dataset bestfa
 # 카메라 없이 확인: 위 명령에 --emulate 추가
 ```
 
-BestFA는 크롭을 끈 상태로 시작한다. 전용 기준 이미지와 학습 모델을 준비한 뒤 해당 설정에 연결한다.
+BestFA는 640 ROI 2개(`<Crop><Roi>`, 왼쪽부터 라벨러의 ROI 1 / ROI 2)로 시작한다 — ROI 하나에 와이어 하나,
+ROI 마다 따로 추론하고 `<MaxDetections>1` 은 ROI 당 개수다. 학습 세션의 crop.yaml rois 와 같은 값으로 맞춘다.
 BestFA 모델 배포 시 `weights/deploy.yaml`에 `bestfa-yolo26s-seg.onnx`를 추가한다.
 
 ## 구성
@@ -38,15 +39,17 @@ CameraFinder.Enumerate()                    // 카메라 열거
       → PixelDataConverter.Convert → BGRA byte[]
       → FrameRecorder.Submit         // REC 중이면 수신 원본(전체 센서 또는 하드웨어 ROI)을 큐에 복사
       → (Inference 켠 경우)
-          FrameCropper.Crop          // 크롭본 = 모델 입력
-          → InferenceService.Submit  // 최신 프레임만 처리 (밀리면 버림)
-          → Compose()                // 풀 프레임 위 크롭 위치에 최신 추론 결과를 다시 얹음
+          FrameCropper.Crop × ROI 수 // 크롭본 = 모델 입력 (ROI 마다 하나)
+          → InferenceService.Submit  // 최신 프레임만 처리 (밀리면 버림), ROI 마다 차례로 추론
+          → Compose()                // 풀 프레임 위 각 ROI 위치에 최신 추론 그림(그린 픽셀만)을 얹음
       → Dispatcher.Invoke → WriteableBitmap.WritePixels  // 수신 프레임을 표시
 ```
 
 기본 소프트웨어 크롭 모드에서는 화면이 풀 프레임이고, 크롭 영역은 그 위에 빨간 네모(`OverlayCanvas`)로 표시됩니다.
 바깥이 보여야 프레임을 어디로 옮길지 판단할 수 있기 때문입니다. 모델은 학습 때와 같은 화각을
-보도록 크롭본만 받고, 그 결과 오버레이는 네모 안쪽에 되돌려 그립니다.
+보도록 크롭본만 받고, 그 결과 그림(마스크·박스·끝점)은 네모 안쪽에 얹습니다. 그린 픽셀만 얹으므로
+네모 안도 실시간 영상이고, ROI 가 겹쳐도 서로의 그림을 덮지 않습니다.
+ROI 가 여럿이면 툴바의 ROI 목록에서 조절할 ROI 를 고릅니다 (Crop 체크는 전부 함께 켜고 끔).
 
 - 그랩은 pylon이 제공하는 별도 스레드에서 돌고, 프레임마다 `ImageGrabbed`가 발생합니다.
 - `PixelDataConverter`가 센서 포맷(Mono8/Bayer/YUV 등)을 WPF `Bgra32`에 그대로 맞는 BGRA8로 변환합니다.
@@ -57,11 +60,11 @@ CameraFinder.Enumerate()                    // 카메라 열거
 `config\config.xml` 의 `<Inference><Model>` 파일을 `Models\` 에서 읽습니다 (기본 `yolo26s-seg.onnx`).
 YoloDotNet 이 모델의 종류를 파일에서 알아내므로 seg 모델이면 마스크, obb 모델이면 회전 박스를 그립니다.
 
-- 학습 쪽 `training/configs/train.seg_all.yaml` / `train.obb_all.yaml` 의 export 가
+- 학습 쪽 `training/configs/train.deploy.kimm.yaml` / `train.deploy.bestfa.yaml` 의 export 가
   `src\BaslerLiveView\Models\yolo26s-seg.onnx` / `yolo26s-obb.onnx` 를 덮어써 배포하고,
   이전 것은 `Models\history\` 에 남깁니다 (빌드는 history 를 복사하지 않음).
 - obb 모델로 바꾸려면 `<Model>yolo26s-obb.onnx</Model>`.
-- 프레임당 검출 수는 `<MaxDetections>` (점수 높은 순으로 그 개수만, = 와이어 수 — 지금 2),
+- 크롭(ROI)당 검출 수는 `<MaxDetections>` (점수 높은 순으로 그 개수만, = ROI 안 와이어 수 — BestFA 1),
   최소 점수는 `<Confidence>` (기본 0.24). 앱을 다시 켜면 반영됩니다.
 
 ## 학습 데이터 수집 (크롭 + 레코딩)

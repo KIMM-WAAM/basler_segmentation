@@ -12,14 +12,14 @@ yolo26s-seg / yolo26s-obb 파인튜닝 + ONNX export.
 config 의 stages 로 무엇을 돌릴지 고릅니다 (블록 자체가 필수 — 빠지면 오류):
     preview_aug : 증강이 실제로 어떻게 먹는지 눈으로 확인 (학습 전 점검용)
     train       : 파인튜닝
-    export      : best.pt → ONNX (runs/ 실행 폴더에. 앱 배포는 archive.py → weights/deploy.yaml)
+    export      : best.pt (export.weights 로 last.pt 도) → ONNX (runs/ 실행 폴더에. 앱 배포는 archive.py → weights/deploy.yaml)
 재학습 없이 export 만 다시 하려면 train: false, export: true 로 두면 됩니다.
 
 사용법 (training/ 에서, uv sync --extra train --extra export 후):
-    uv run train.py --config train.kimm.single.yaml         # KIMM (val/test 분리)
-    uv run train.py --config train.bestfa.single.yaml  # BestFA (val/test 분리)
-    uv run train.py --config train.seg_all.yaml        # KIMM 배포용 (전체 데이터)
-    uv run train.py --config train.bestfa.seg_all.yaml # BestFA 배포용 (전체 데이터)
+    uv run train.py --config train.split.kimm.yaml     # KIMM 측정용 (train / val·test 분리)
+    uv run train.py --config train.split.bestfa.yaml   # BestFA 측정용 (train / val 분리)
+    uv run train.py --config train.deploy.kimm.yaml    # KIMM 배포용 (전체 데이터 + ONNX)
+    uv run train.py --config train.deploy.bestfa.yaml  # BestFA 배포용 (전체 데이터 + ONNX)
 
 실행마다 <실행 폴더>/run_info.yaml (코드 · 데이터 manifest · 환경)과 재현용 config.yaml 이
 남습니다 (provenance.py). 같은 학습을 다시 돌리려면:
@@ -38,7 +38,7 @@ class Trainer(Stage):
     """
     파인튜닝과 ONNX export 를 담당하는 단계.
 
-    실행마다 다른 yaml 을 쓰므로(`Trainer("train.kimm.single.yaml")`) 후보가 여럿이면
+    실행마다 다른 yaml 을 쓰므로(`Trainer("train.split.kimm.yaml")`) 후보가 여럿이면
     기본값을 고르지 않습니다 — 조용히 엉뚱한 설정으로 학습하는 것을 막기 위함입니다.
     """
 
@@ -107,14 +107,33 @@ class Trainer(Stage):
         return (self.resolve(train_cfg.get("project", "runs/obb"))
                 / str(train_cfg.get("name", "yolo26s-obb-finetune")))
 
-    def best_weights(self) -> Path:
-        """best.pt 위치. 이번 실행에서 학습했다면 그 결과 폴더를, 아니면 가장 최근 실행."""
+    def run_weights(self, name: str = "best") -> Path:
+        """<name>.pt 위치 (best / last). 이번 실행에서 학습했다면 그 결과 폴더를, 아니면 가장 최근 실행."""
         if self._save_dir is not None:
-            return self._save_dir / "weights" / "best.pt"
+            return self._save_dir / "weights" / f"{name}.pt"
         root = self.run_root()
         latest = latest_run(root)
         # 실행 폴더가 하나도 없으면 없는 경로를 그대로 — 호출부가 안내 메시지를 냅니다.
-        return (latest or root) / "weights" / "best.pt"
+        return (latest or root) / "weights" / f"{name}.pt"
+
+    def best_weights(self) -> Path:
+        """best.pt 위치 (run_weights 참고)."""
+        return self.run_weights("best")
+
+    EXPORT_WEIGHTS = ("best", "last")
+
+    def export_weights(self) -> list:
+        """
+        export 할 체크포인트 이름 목록 — config export.weights (기본 [best]). 예: [best, last].
+        best 는 val 로 고른 epoch, last 는 마지막 epoch. val 이 학습에 들어간 deploy 실행에서는
+        best 선택이 의미 없으므로 last 도 함께 내보내 둔다.
+        """
+        names = (self.cfg.get("export") or {}).get("weights", ["best"])
+        names = [names] if isinstance(names, str) else list(names or [])
+        bad = [n for n in names if n not in self.EXPORT_WEIGHTS]
+        if not names or bad:
+            self.fail(f"export.weights 는 {list(self.EXPORT_WEIGHTS)} 중에서 고르세요 (지금: {names})")
+        return list(dict.fromkeys(names))   # 순서 유지 · 중복 제거
 
     # -- 단계 ------------------------------------------------------------
 
@@ -378,24 +397,31 @@ class Trainer(Stage):
         self.log(f"학습 완료 → {best}")
         return best
 
-    def export(self) -> Path:
+    def export(self) -> list:
         """
-        best.pt → ONNX (실행 폴더의 weights/best.onnx). 앱으로는 복사하지 않는다 — 앱 배포는
-        archive.py 로 저장소 루트 weights/ 에 보관한 뒤 weights/deploy.yaml 에서 고른다.
+        export.weights 의 체크포인트(기본 best) → ONNX (실행 폴더의 weights/<이름>.onnx — best.onnx ·
+        last.onnx). 앱으로는 복사하지 않는다 — 앱 배포는 archive.py 로 저장소 루트 weights/ 에 보관한 뒤
+        weights/deploy.yaml 에서 고른다. 만든 ONNX 경로 목록을 돌려준다.
         """
-        from ultralytics import YOLO
-
         ex = dict(self.cfg.get("export", {}))
         if ex.pop("deploy_to", None):
             self.log("export.deploy_to 는 더 이상 쓰지 않음 (무시) — archive.py → weights/deploy.yaml")
+        names = self.export_weights()
 
-        weights = self.best_weights()
-        if not weights.exists():
+        paths = [self.run_weights(n) for n in names]
+        missing = [p for p in paths if not p.exists()]
+        if missing:
             raise FileNotFoundError(
-                f"가중치를 찾을 수 없습니다: {weights}\n"
+                f"가중치를 찾을 수 없습니다: {', '.join(map(str, missing))}\n"
                 f"학습을 먼저 끝내거나 train.*.yaml 의 train.project/name 을 확인하세요.\n"
                 f"(export 만 돌리면 {self.run_root()} 의 가장 최근 실행에서 찾습니다.)"
             )
+        return [self.export_one(w, ex) for w in paths]
+
+    def export_one(self, weights: Path, ex: dict) -> Path:
+        """체크포인트 하나 → ONNX + 출처 메타데이터."""
+        from ultralytics import YOLO
+
         self.log(f"가중치: {weights}")
 
         exported = Path(YOLO(str(weights)).export(

@@ -5,8 +5,8 @@
 - 원천은 datasets/<환경>/raw/<세션>/.
 - 산출물은 out = datasets/<환경>/processed_seg/ (OBB 는 --task obb 로 processed_obb/) 에 바로:
     images|labels/{train,val,test}/   preview/
-    data.yaml       train/val/test 분할 그대로 (train.single · eval)
-    data.all.yaml   배포용 전체 데이터 목록 (train.*_all.yaml)
+    data.yaml       train/val/test 분할 그대로 (train.split · eval)
+    data.all.yaml   배포용 전체 데이터 목록 (train.deploy.*.yaml)
     manifest.yaml · manifest.files.tsv   어느 세션의 어느 파일이 어느 split 에 — provenance.py
   test 는 있을 때만 키를 넣습니다.
 
@@ -30,6 +30,9 @@
   그 이미지는 데이터셋에서 제외됩니다(기존 동작과 동일: 대상 없는 이미지는 안 넣음).
 - 크롭 인자는 소스마다 독립입니다(공유 기본값 없음). 창을 %로 고정하거나
   (width/height/center_x/center_y), auto_crop 으로 이미지마다 라벨에서 직접 잡습니다.
+- 세션 crop.yaml 에 rois 목록이 있으면(BestFA: ROI 하나에 와이어 하나) 원본 한 장에서 ROI
+  마다 학습 샘플을 하나씩 만듭니다 — 산출 파일명 끝에 _r1, _r2 … (앱도 ROI 마다 추론).
+  ROI 개수는 config 의 roi_count (생략 시 1) 와 맞아야 합니다.
 - 마음에 안 드는 이미지는 원천(raw)에서 이미지 파일만 지우면 됩니다 — 다음 실행에서
   짝 라벨(.txt)이 자동 삭제됩니다 (이미지가 하나도 없는 폴더는 경로 실수로 보고 보호).
 - 라벨에 지정 클래스(class_map)가 하나도 없는 데이터는 이미지+라벨 쌍째 원천에서
@@ -68,7 +71,7 @@ from tqdm import tqdm
 
 import provenance
 from common import IMG_EXTS, INDEX_RE, Stage, normalize_names, raw_image_dir
-from dataset_paths import read_session_meta, session_crop
+from dataset_paths import crop_windows, read_session_meta, session_crop
 from source_crop import INDEX as CROP_INDEX
 
 # ── 크롭 기하 (순수 함수 — tests/ 가 직접 검증) ────────────────────────────
@@ -575,7 +578,8 @@ class Preprocessor(Stage):
 
     def collect_source(self, src: dict) -> list:
         """
-        소스에서 (img_path, [최종 라벨 줄], rect, 세션 폴더명) 목록 수집.
+        소스에서 (img_path, [최종 라벨 줄], rect, 세션 폴더명, ROI 번호) 목록 수집.
+        ROI 번호는 crop.yaml 에 rois 가 있을 때 0, 1, … (ROI 마다 항목 하나), 없으면 None.
 
         크롭이 켜져 있으면 여기서 라벨까지 변환합니다 — 분할(split)보다 먼저 해야
         '크롭 후 대상이 사라진 이미지'가 train/val 개수에 섞이지 않습니다.
@@ -595,6 +599,8 @@ class Preprocessor(Stage):
         self.raw_counts: dict = {}
         self.session_meta: dict = {}
         self.session_crops: dict = {}
+        self.session_windows: dict = {}   # 세션 → ROI 별 창 설정 (crop_windows)
+        self.roi_instances: dict = {}     # ROI 가 여럿일 때: 샘플당 인스턴스 수 → 샘플 수
         self.raw_labels: dict = {}
         self.crop_index: dict = {}
         self.log("입력 이미지 수 확인 중...")
@@ -612,7 +618,9 @@ class Preprocessor(Stage):
                 progress.set_postfix_str(src_dir.name, refresh=False)
                 crop_cfg = session_crop(src_dir)
                 self.session_crops[src_dir.name] = crop_cfg
-                cropper = Cropper(crop_cfg)
+                windows = crop_windows(crop_cfg)
+                self.session_windows[src_dir.name] = windows
+                croppers = [Cropper(window) for window in windows]
                 self.session_meta[src_dir.name] = read_session_meta(src_dir)
                 for key in ("train", "val", "valid", "test"):
                     img_dir = self.find_split_image_dir(src_dir, dy, key)
@@ -622,19 +630,21 @@ class Preprocessor(Stage):
                     self.prune_orphan_labels(img_dir, lbl_dir, src["name"])
                     before = len(owner)
                     self.collect_dir(src, src_dir.name, img_dir, lbl_dir, src_names,
-                                     class_map, cropper, items, owner, no_class, progress)
+                                     class_map, croppers, items, owner, no_class, progress)
+                    # 샘플 수 기준 (원본 × ROI) — manifest 의 skipped 가 산출 샘플과 같은 단위
                     self.raw_counts[src_dir.name] = (self.raw_counts.get(src_dir.name, 0)
-                                                     + len(owner) - before)
+                                                     + (len(owner) - before) * len(croppers))
 
-                self.absorb_crop_stats(cropper)
+                for cropper in croppers:
+                    self.absorb_crop_stats(cropper)
 
         self.prune_no_class_pairs(src["name"], class_map, items, no_class)
         return items
 
     def collect_dir(self, src: dict, session: str, img_dir: Path, lbl_dir: Path,
-                    src_names: dict, class_map: dict, cropper, items: list,
+                    src_names: dict, class_map: dict, croppers: list, items: list,
                     owner: dict, no_class: list, progress=None) -> None:
-        """collect_source 의 폴더 하나 분량 — 이미지별로 라벨 remap → 크롭 → OBB 변환."""
+        """collect_source 의 폴더 하나 분량 — 이미지별로 라벨 remap → (ROI 마다) 크롭 → OBB 변환."""
         for img in sorted(img_dir.iterdir()):
             if img.suffix.lower() not in IMG_EXTS:
                 continue
@@ -657,33 +667,39 @@ class Preprocessor(Stage):
                     continue
 
                 self.raw_labels[img.name] = list(lines)
-                cropped = cropper.apply(img, lines)
-                if cropped is None:
-                    continue
-                rect, lines = cropped
-
-                if self.task == "obb":
-                    # 소스 라벨이 폴리곤(seg)인지 이미 OBB인지는 파일만 보고 구분하기
-                    # 어렵고(둘 다 '클래스 + 좌표 8개'가 될 수 있음) 잘못 넘겨짚으면
-                    # 라벨이 조용히 망가지므로, config 의 type 으로만 판단합니다.
-                    stype = src.get("type")
-                    if stype == "seg":
-                        lines = self.obb_lines(img, lines, rect, src.get("resize"))
-                        if not lines:
-                            continue          # 변환 가능한 인스턴스가 없으면 이미지째 제외
-                    elif stype == "obb":
-                        pass  # 이미 OBB 라벨이므로 변환 불필요
-                    elif stype is None:
-                        self.fail(f"{src['name']}: task: obb 로 구우려면 소스마다 "
-                                  f"type: seg 또는 type: obb 가 필요합니다 "
-                                  f"(원본 라벨이 폴리곤인지 OBB인지 추측하지 않습니다).")
-                    else:
-                        self.fail(f"{src['name']}: type 은 seg 또는 obb 여야 합니다: {stype}")
-                items.append((img, lines, rect, session))
+                multi = len(croppers) > 1
+                for roi, cropper in enumerate(croppers):
+                    cropped = cropper.apply(img, lines)
+                    if cropped is None:
+                        continue
+                    rect, kept = cropped
+                    if self.task == "obb":
+                        kept = self.to_obb(src, img, kept, rect)
+                        if not kept:
+                            continue          # 변환 가능한 인스턴스가 없으면 이 샘플 제외
+                    if multi:
+                        self.roi_instances[len(kept)] = self.roi_instances.get(len(kept), 0) + 1
+                    items.append((img, kept, rect, session, roi if multi else None))
             finally:
                 if progress is not None:
                     progress.update(1)
 
+
+    def to_obb(self, src: dict, img: Path, lines: list, rect) -> list:
+        """task: obb 일 때 크롭된 라벨 줄을 OBB 줄로 (소스 type 이 seg 면 변환, obb 면 그대로)."""
+        # 소스 라벨이 폴리곤(seg)인지 이미 OBB인지는 파일만 보고 구분하기
+        # 어렵고(둘 다 '클래스 + 좌표 8개'가 될 수 있음) 잘못 넘겨짚으면
+        # 라벨이 조용히 망가지므로, config 의 type 으로만 판단합니다.
+        stype = src.get("type")
+        if stype == "seg":
+            return self.obb_lines(img, lines, rect, src.get("resize"))
+        if stype == "obb":
+            return lines  # 이미 OBB 라벨이므로 변환 불필요
+        if stype is None:
+            self.fail(f"{src['name']}: task: obb 로 구우려면 소스마다 "
+                      f"type: seg 또는 type: obb 가 필요합니다 "
+                      f"(원본 라벨이 폴리곤인지 OBB인지 추측하지 않습니다).")
+        self.fail(f"{src['name']}: type 은 seg 또는 obb 여야 합니다: {stype}")
 
     def obb_lines(self, img: Path, lines: list, rect, resize) -> list:
         """
@@ -783,15 +799,16 @@ class Preprocessor(Stage):
         항목 하나를 split 폴더에 reps 개(oversample) 만큼 기록. manifest 한 줄을 돌려준다:
         (split, 세션, 산출 파일명, 원본 이미지 sha256, 라벨 sha256, reps).
         """
-        img, lines, rect, session = item
+        img, lines, rect, session, roi = item
         resize = src.get("resize")
+        tail = "" if roi is None else f"_r{roi + 1}"     # ROI 여럿: 원본 한 장 → _r1, _r2 …
         text = "\n".join(lines) + "\n"
         first = None
         raw_hash = provenance.sha256_file(img)
 
         for r in range(reps):
             suffix = "" if r == 0 else f"_os{r}"
-            stem = f"{src['name']}__{img.stem}{suffix}"
+            stem = f"{src['name']}__{img.stem}{tail}{suffix}"
             dst = dirs[split] / (stem + img.suffix.lower())
             if first is None:
                 self.write_image(img, dst, rect, resize)   # 인코딩은 한 번만
@@ -802,7 +819,7 @@ class Preprocessor(Stage):
             self.crop_index[dst.name] = {
                 "image": Path(os.path.relpath(img.resolve(), self.out.resolve())).as_posix(),
                 "raw_sha256": raw_hash, "labels": self.raw_labels[img.name],
-                "crop": self.session_crops[session], "resize": resize,
+                "crop": self.session_windows[session][roi or 0], "roi": roi, "resize": resize,
                 "session": session, "split": split,
             }
         return (split, session, first.name, raw_hash,
@@ -866,8 +883,8 @@ class Preprocessor(Stage):
     def write_data_yaml(self) -> tuple[list, list, list]:
         """
         학습용 data.yaml 을 다시 쓴다 — 두 종류 (스테이지 구분은 train/eval config 가 고름):
-        · out/data.yaml      train/val/test 분할 그대로 (train.single · eval.single · eval.final)
-        · out/data.all.yaml  배포용 전체 데이터 목록 (train.*_all.yaml)
+        · out/data.yaml      train/val/test 분할 그대로 (train.split · eval)
+        · out/data.all.yaml  배포용 전체 데이터 목록 (train.deploy.*.yaml)
         반환: data.yaml 에 들어간 split 이름들.
         """
         def has_images(d: Path) -> bool:
@@ -951,7 +968,7 @@ class Preprocessor(Stage):
             self.fail(f"{name}: val_sessions 와 test_sessions 에 같은 세션: {', '.join(sorted(both))}")
 
         groups: dict = {}
-        for i, (img, _, _, session) in enumerate(items):
+        for i, (img, _, _, session, _) in enumerate(items):
             key = session if by == "session" else self.split_group(img.stem)
             groups.setdefault(key, []).append(i)
         keys = sorted(groups)
@@ -1030,12 +1047,17 @@ class Preprocessor(Stage):
     def run(self) -> None:
         src = self.source
         # 산출물을 비우거나 원본 라벨을 정리하기 전에 모든 세션 크롭을 검증한다.
+        roi_count = int(self.cfg.get("roi_count", 1))
         errors = []
         for directory in self.source_dirs(src):
             try:
-                session_crop(directory)
+                windows = crop_windows(session_crop(directory))
             except (ValueError, OSError) as exc:
                 errors.append(str(exc))
+                continue
+            if len(windows) != roi_count:
+                errors.append(f"{directory / 'crop.yaml'}: ROI {len(windows)}개 — 이 환경은 "
+                              f"roi_count {roi_count}개입니다. 라벨러에서 크롭을 다시 저장하세요.")
         if errors:
             self.fail("세션 크롭 설정을 확인하세요:\n" + "\n".join(errors))
         dirs = {sp: self.out / f"images/{sp}" for sp in ("train", "val", "test")}
@@ -1086,6 +1108,11 @@ class Preprocessor(Stage):
             self.log(f"크롭으로 폐기된 인스턴스 {self._dropped_instances}개 "
                      f"(그 중 대상이 하나도 안 남아 제외된 이미지 {self._dropped_empty}장). "
                      f"많으면 center_x/center_y 또는 min_area 를 조정하세요.")
+
+        if self.roi_instances:
+            dist = ", ".join(f"{n}개 {c}장" for n, c in sorted(self.roi_instances.items()))
+            self.log(f"ROI 샘플당 와이어 수: {dist} — ROI 하나에 와이어 하나가 기준입니다. "
+                     f"2개 이상은 이웃 와이어가 ROI 에 걸친 것 (min_area 이상만 남음).")
 
         if self._undersized:
             self.log(f"경고: auto_crop 창이 min_size 에 못 미친 이미지 {self._undersized}장 "

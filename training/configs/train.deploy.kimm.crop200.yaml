@@ -1,0 +1,17 @@
+# KIMM 배포용 (새 kimm 80세션): train.split.kimm.crop200 과 같은 증강으로 train+val+test 전체 학습 + ONNX.
+# 11/16 분할 실행(261113_165345) 평가 — 학습에 안 쓴 날짜(test)의 끝점 오차:
+#   예전 데이터 모델 20px 이내 90% → 새 데이터 95% (중앙 5.6px). epoch 75 이후로는 그대로(94.6~95.1%)라 100 epoch.
+# val: false — val 이 학습에 들어 있어 epoch 마다 검증할 이유가 없다. Ultralytics 는 그러면 마지막 epoch 에만
+#   검증하고 best.pt 를 매 epoch 덮어써서 best.pt = last.pt 가 된다 (11/16 확인). 그래서 export 단계의 best.onnx ·
+#   archive.py · 앱 빌드(weights/<보관본>/weights/best.onnx)가 그대로 마지막 epoch 모델을 쓴다.
+base: train.split.kimm.crop200.yaml
+
+stages:
+  export: true
+
+train:
+  data: ../datasets/kimm/processed_seg/data.all.yaml
+  epochs: 100
+  val: false
+  save_period: -1  # 중간 체크포인트 안 남김 (배포용)
+  name: kimm-yolo26s-seg-deploy-crop200

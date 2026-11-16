@@ -18,6 +18,13 @@ edge 2 는 끝의 둘레를 직접 딴다.
      끝을 평평하게 자른다. O 에서 아래로 행마다 좌우 국소 문턱으로 쐐기를 끝까지 따라가서, 광선 끝보다
      와이어 폭의 TIP_EXTRA_W 배 넘게 더 내려가면 그 행들의 좌우 경계로 V 를 만들고 맨 아래는 작은
      광선으로 둥글게 닫는다. (둥근 끝은 행이 늘 5~9px 정도만 더 내려가서 원래 광선 둘레 그대로.)
+  7. 하이라이트 강건 모드 (highlight=True — 서버가 BestFA 오른쪽 와이어에 켬). 오른쪽 와이어는 왼쪽
+     옆면에 빛 받은 밝은 줄이 있고, O 근처에서 그 줄과 아크 헤일로가 만나 옆면 첫 점이 튄다. 5 의
+     "끊김 없이 이어지는 구간"은 첫 튐에서 위쪽을 통째로 버려, 옆면을 잃고 OBB 꼭짓점까지 직선(OBB 가
+     와이어보다 넓으면 하이라이트 위)을 긋는다. 이 모드는 옆면을 SIDE_ROWS_HL × 두께까지 따고,
+     축과 거의 나란한 직선(기울기 ≤ SIDE_SLOPE)을 튀는 점에 강건하게 맞춰 SIDE_TOL 안의 점만 쓴다.
+     맞춘 직선이 충분히 길면(점 SIDE_MIN_PTS 개 이상, 높이 SIDE_MIN_SPAN × 두께 이상) 그 직선을 OBB
+     윗변까지 늘려 윗변 꼭짓점 대신 쓴다.
 결과 폴리곤 = OBB 윗변 2점 + 오른쪽 옆면 → 끝 둘레 → 왼쪽 옆면. 옆면이 안 보이는 구간은
 OBB 윗변 꼭짓점까지 직선.
 
@@ -59,13 +66,51 @@ OK_SMOOTH = 1.5      # 등고선 매끄러움 (점 ↔ 이웃 평균 거리 RMS,
 OK_ARC = 0.9          # 끝 둘레 광선 중 경계를 찾은 비율
 OK_RADIUS = 0.8       # 끝 둘레 반지름의 최대 벗어남 (중앙값 대비)
 OK_SIDE = 2.0         # 옆면 점들의 직선 잔차 RMS (px)
+# 하이라이트 강건 모드 (docstring 7)
+SIDE_ROWS_HL = 3.0    # 옆면을 따는 높이 (O 위로, 두께 배수)
+SIDE_TOL = 1.5        # 직선에서 이 거리(px) 안의 점만 옆면으로
+SIDE_SLOPE = 0.2      # 옆면 직선의 축 대비 기울기 상한 (가로 px / 세로 px)
+SIDE_MIN_PTS = 5      # 직선을 윗변까지 늘리는 데 필요한 점 수
+SIDE_MIN_SPAN = 0.5   # 직선을 윗변까지 늘리는 데 필요한 점들의 높이 (두께 배수)
 
 
-def find_tip2(image_path: Path, points: list) -> dict:
+def fit_side(pts: list) -> tuple[list, tuple | None]:
+    """
+    옆면 점 (c, s) 들에 c = a + b·s 직선을 강건하게 맞춘다 — 두 점씩 골라 만든 직선 중 |b| ≤ SIDE_SLOPE
+    이고 SIDE_TOL 안의 점이 가장 많은 것을 고른 뒤 그 점들로 최소제곱. (inlier 점들, (a, b)) 또는 ([], None).
+    """
+    if len(pts) < 3:
+        return [], None
+    best, best_key = None, None
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            (c0, s0), (c1, s1) = pts[i], pts[j]
+            if abs(s1 - s0) < 1e-6:
+                continue
+            b = (c1 - c0) / (s1 - s0)
+            if abs(b) > SIDE_SLOPE:
+                continue
+            a = c0 - b * s0
+            res = [abs(c - (a + b * s)) for c, s in pts]
+            inl = [k for k, r in enumerate(res) if r <= SIDE_TOL]
+            key = (len(inl), -sum(res[k] for k in inl))
+            if best_key is None or key > best_key:
+                best, best_key = inl, key
+    if not best or len(best) < 3:
+        return [], None
+    sel = [pts[k] for k in best]
+    n = len(sel)
+    ms, mc = sum(s for _, s in sel) / n, sum(c for c, _ in sel) / n
+    sxx = sum((s - ms) ** 2 for _, s in sel)
+    b = sum((s - ms) * (c - mc) for c, s in sel) / sxx if sxx else 0.0
+    return sel, (mc - b * ms, b)
+
+
+def find_tip2(image_path: Path, points: list, highlight: bool = False) -> dict:
     """
     이미지 + OBB 라벨(정규화 4점) → 끝 경계. 반환 형식은 edge.find_tip 과 같다 (status,
     polygon, edges, inliers/columns = 찾은 광선/전체 광선, rms = 매끄러움, tip = 끝까지 축 거리)
-    + score (판정에 쓴 값들).
+    + score (판정에 쓴 값들). highlight=True 면 하이라이트 강건 모드 (docstring 7).
     """
     with Image.open(image_path) as im:
         gray = im.convert("L")
@@ -182,7 +227,7 @@ def find_tip2(image_path: Path, points: list) -> dict:
 
     # 옆면 — O 높이에서 위로. 옆이 어두운 배경이면 안 보이는 게 정상이라 빠져도 감점 없음
     right_side, left_side = [], []
-    s_top = max(y1, o_s - SIDE_ROWS * thick)
+    s_top = max(y1, o_s - (SIDE_ROWS_HL if highlight else SIDE_ROWS) * thick)
     s = o_s - SIDE_STEP
     hint = o_c
     while s >= s_top:
@@ -203,7 +248,30 @@ def find_tip2(image_path: Path, points: list) -> dict:
                 break
             kept.append(q)
         return kept
-    right_side, left_side = trim(right_side), trim(left_side)
+    lines = {"right": None, "left": None}
+    if highlight:
+        # 첫 튐에서 끊지 않고, 축과 나란한 직선에서 벗어난 점만 뺀다 (docstring 7)
+        fitted = {"right": fit_side(right_side), "left": fit_side(left_side)}
+        for key, (pts, line) in fitted.items():
+            span = (max(s_ for _, s_ in pts) - min(s_ for _, s_ in pts)) if pts else 0.0
+            # 짧은 직선은 윗변까지 늘리지 않는다
+            lines[key] = line if len(pts) >= SIDE_MIN_PTS and span >= SIDE_MIN_SPAN * thick else None
+        # 옆면 휨 판정은 맞추기 전 점(직선 근처 점)으로, 폴리곤은 직선을 다시 찍은 점으로 —
+        # 국소 문턱 점은 직선 둘레 ±SIDE_TOL 로 흔들리고 튄 점을 뺀 자리는 비어서, 그대로 이으면 경계가
+        # 잔물결처럼 되고 매끄러움(이웃 평균 거리)도 커진다. O 바로 위부터 맨 위 점까지 SIDE_STEP 간격.
+        score_right, score_left = fitted["right"][0], fitted["left"][0]
+
+        def resample(pts, line):
+            if not line:
+                return []
+            a, b = line
+            top = min(s_ for _, s_ in pts)
+            n = int((o_s - SIDE_STEP - top) / SIDE_STEP) + 1
+            return [(a + b * s_, s_) for s_ in (o_s - SIDE_STEP * (k + 1) for k in range(max(n, 0)))]
+        right_side, left_side = resample(*fitted["right"]), resample(*fitted["left"])   # O 에서 위로
+    else:
+        right_side, left_side = trim(right_side), trim(left_side)
+        score_right, score_left = right_side, left_side
 
     # 끝 둘레 — O 에서 아래 반원 광선
     arc = []
@@ -252,7 +320,7 @@ def find_tip2(image_path: Path, points: list) -> dict:
         sxx = sum((p[1] - ms) ** 2 for p in pts)
         b = sum((p[1] - ms) * (p[0] - mc) for p in pts) / sxx if sxx else 0.0
         return math.sqrt(sum((p[0] - (mc + b * (p[1] - ms))) ** 2 for p in pts) / n)
-    side = max(side_dev(right_side), side_dev(left_side))
+    side = max(side_dev(score_right), side_dev(score_left))
     if pointed:
         # V 끝: 오른쪽 경계 내려가며 → 끝점(마지막 행 가운데, 반 행 아래) → 왼쪽 경계 올라가며.
         # 광선 기준(끊김·튐)은 쓰지 않는다 — 쐐기를 끝까지 따라왔다는 것 자체가 끝을 찾은 것.
@@ -281,7 +349,16 @@ def find_tip2(image_path: Path, points: list) -> dict:
     ok = not fail
 
     pts_t = [(c - m, s_) for c, s_ in contour]
-    polygon = [to_img(0, 0), to_img(thick, 0)] + [to_img(t, s_) for t, s_ in pts_t]
+    # 윗변 두 점 — 기본은 OBB 꼭짓점. 하이라이트 모드에서 옆면 직선이 충분히 길면 그 직선의 윗변 위치
+    # (OBB 밖으로는 안 나가게 [0, thick] 로 자름)
+    t_left, t_right = 0.0, thick
+    if lines["left"]:
+        t_left = min(max(lines["left"][0] - m, 0.0), thick)
+    if lines["right"]:
+        t_right = min(max(lines["right"][0] - m, 0.0), thick)
+    if t_right - t_left < 4.0:
+        t_left, t_right = 0.0, thick
+    polygon = [to_img(t_left, 0), to_img(t_right, 0)] + [to_img(t, s_) for t, s_ in pts_t]
     return {
         **base,
         "status": "ok" if ok else "low",
@@ -291,5 +368,6 @@ def find_tip2(image_path: Path, points: list) -> dict:
         "tip": max(apex, max(q[1] for q in arc)),
         "score": {"arc": round(arc_found, 2), "radius": round(r_out, 2), "side": round(side, 2),
                   "smooth": round(smooth, 2), "width": round(2 * half, 1),
-                  "sides": [len(right_side), len(left_side)], "pointed": pointed, "extra": round(extra, 1), "fail": fail},
+                  "sides": [len(right_side), len(left_side)], "pointed": pointed, "extra": round(extra, 1), "fail": fail,
+                  "highlight": highlight, "side_lines": [lines["right"] is not None, lines["left"] is not None]},
     }

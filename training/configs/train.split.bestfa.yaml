@@ -1,0 +1,11 @@
+# BestFA 측정용: train 으로 학습, val(마지막 묶음 layer 138~157 — preprocess.bestfa.yaml) 로 평가. test 세션은 없다.
+# 여기서 나온 best epoch 로 train.deploy.bestfa 의 epochs 를 정한다.
+base: base/train.bestfa.yaml
+
+stages:
+  export: false  # 배포하지 않는 모델
+
+train:
+  data: ../datasets/bestfa/processed_seg/data.yaml
+  epochs: 200
+  name: bestfa-yolo26s-seg-split

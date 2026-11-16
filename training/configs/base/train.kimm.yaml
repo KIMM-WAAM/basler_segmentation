@@ -1,0 +1,77 @@
+# KIMM 학습 공통 설정. train.split.kimm / train.deploy.kimm 이 이 파일 위에 데이터·길이·이름만 덮는다.
+# 증강은 11/09 분리 실험 C (mask mAP50-95 0.806, 실험 중 최고).
+#   - 원본 크롭 이동(source_crop)은 끈다 — 실험 B 에서 0.549 로 크게 떨어짐.
+dataset: kimm
+
+stages:
+  preview_aug: false
+  train: true
+  export: true
+
+source_crop:
+  enabled: false
+
+train:
+  model: yolo26s-seg.pt
+  project: runs/kimm/segment
+  imgsz: 640
+  batch: -1  # -1: GPU 메모리에 맞춘 자동 배치
+  device: "0"  # GPU 인덱스 또는 cpu
+  workers: 8
+  resume: false
+  seed: 0
+  save_period: 5  # 체크포인트 저장 간격 (epoch)
+  patience: 0  # early stopping 끔 — cosine LR 을 끝까지 내린다
+
+  # optimizer 고정: AdamW lr 0.002.
+  # auto 는 총 iteration 이 10,000 을 넘으면 MuSGD(lr 0.01) 를 고르는데, 그 실행은
+  # best 가 4 epoch 에서 나오고 이후 무너졌다 (KIMM mask mAP50-95 0.579 vs AdamW 0.806).
+  optimizer: AdamW
+  lr0: 0.002
+  momentum: 0.9
+  warmup_bias_lr: 0.0
+  cos_lr: true
+
+  # 기하 증강
+  degrees: 5.0
+  translate: 0.05
+  scale: 0.1
+  shear: 0.0
+  perspective: 0.0
+  fliplr: 0.0
+  flipud: 0.0
+  mosaic: 0.0
+  close_mosaic: 0
+  mixup: 0.0
+  copy_paste: 0.0
+
+  # 색 증강 (hsv 대신 사용자 증강)
+  hsv_h: 0.0
+  hsv_s: 0.0
+  hsv_v: 0.0
+  brightness:  # 밝기 배율 (로그 균등)
+    p: 0.8
+    gain: [0.5, 2.0]
+  gamma:  # 감마 배율 (로그 균등)
+    p: 0.8
+    gain: [0.5, 2.0]
+  blur:  # Gaussian sigma (px)
+    p: 0.2
+    sigma: [1.0, 3.0]
+
+overlay:
+  enabled: true
+
+export:
+  format: onnx
+  opset: 12
+  nms: false  # 앱의 YOLO26 추론 형식에 맞춤
+  simplify: true
+  half: false
+  dynamic: false
+  weights: [best, last]  # 내보낼 체크포인트 → weights/best.onnx · last.onnx (best = val 로 고른 epoch, last = 마지막)
+
+preview:
+  project: runs/preview
+  name: aug
+  fraction: 0.1

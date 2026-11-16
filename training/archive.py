@@ -8,6 +8,7 @@
     weights/best.pt    학습 재개 · eval · infer(--weights 로 그대로) · 다시 export 용
     weights/last.pt    마지막 epoch (끝난 실행은 옵티마이저가 빠져 best 와 같은 크기)
     weights/best.onnx  앱용 (출처 메타데이터 포함 — provenance.stamp_onnx)
+    weights/last.onnx  마지막 epoch ONNX (export.weights 에 last 가 있었으면)
     args.yaml      Ultralytics 학습 인자 전체
     results.csv    epoch 별 손실 · 점수
     run_info.yaml  커밋 · config · 데이터 manifest · 시작 가중치 · 환경 (없던 예전 실행은 .pt 의 git 정보)
@@ -30,7 +31,7 @@ import provenance
 from common import HERE, resolve
 
 DEST = HERE.parent / "weights"
-FILES = ("weights/best.pt", "weights/last.pt", "weights/best.onnx", "args.yaml", "results.csv", provenance.PATCH,
+FILES = ("weights/best.pt", "weights/last.pt", "weights/best.onnx", "weights/last.onnx", "args.yaml", "results.csv", provenance.PATCH,
          provenance.RUN_CONFIG)
 
 
@@ -68,7 +69,9 @@ def main() -> None:
     info = provenance.read(best)
     (dest / provenance.RUN_INFO).write_text(yaml.safe_dump(info, allow_unicode=True, sort_keys=False),
                                             encoding="utf-8")
-    provenance.stamp_onnx(dest / "weights" / "best.onnx", info)
+    for onnx in ("best.onnx", "last.onnx"):
+        if (dest / "weights" / onnx).exists():
+            provenance.stamp_onnx(dest / "weights" / onnx, info)
 
     git = info.get("git") or {}
     print(f"[archive] {run} → {dest}")

@@ -57,7 +57,7 @@ cd training
 uv sync --extra train --extra export      # 첫 설치 (torch cu128 · ultralytics · ONNX · ruff)
 uv run labeller/server.py                 # 라벨러 → http://localhost:8765
 uv run preprocess.py --dataset kimm        # raw → kimm/processed_seg (+ manifest)
-uv run train.py --config train.kimm.single.yaml
+uv run train.py --config train.split.kimm.yaml
 ```
 
 학습 실행마다 `run_info.yaml`(코드 커밋 · 데이터 manifest · 시작 가중치 · 환경)과 재현용 `config.yaml`이
@@ -66,7 +66,7 @@ uv run train.py --config train.kimm.single.yaml
 
 라벨러는 `uv run labeller/server.py`로 실행하고 화면 상단 프리셋에서 **KIMM / BestFA**를 고른다.
 BestFA 라벨링 후에는 `uv run preprocess.py --dataset bestfa`,
-`uv run train.py --config train.bestfa.single.yaml` 순서로 실행한다.
+`uv run train.py --config train.split.bestfa.yaml` 순서로 실행한다.
 외부 세션 받기(`waiting/` → raw)와 환경별 명령은 [training/README.md](training/README.md)에 있다.
 앱은 `BaslerLiveView.exe --dataset bestfa`로 BestFA 설정을 읽는다 (기본 KIMM).
 

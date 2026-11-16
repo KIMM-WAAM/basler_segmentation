@@ -1,0 +1,13 @@
+# BestFA 측정용 모델 평가: val(2층 세션). BestFA 에는 test 세션이 없어 이것이 독립 평가다.
+dataset: bestfa
+weights: runs/bestfa/segment/bestfa-yolo26s-seg-split/weights/best.pt  # 타임스탬프 생략: 가장 최근 실행
+data: ../datasets/bestfa/processed_seg/data.yaml
+split: val
+imgsz: 640
+device: "0"
+visualize:
+  enabled: true
+  out: eval/bestfa
+  count: 20  # 0: split 전체
+  conf: 0.25  # 시각화할 예측의 최소 점수
+  baseline: true  # 와이어 끝 높이 표시

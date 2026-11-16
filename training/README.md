@@ -27,7 +27,7 @@ labeller/ → preprocess.py → train.py (single) → eval.py → train.py (*_al
 | `tools/make_reference_cutout.py` | 기구부 기준 이미지 → 누끼·윤곽선 (앱·라벨러 오버레이) |
 | `tools/waiting_to_raw.py` | `datasets/<환경>/waiting/` 의 세션 → `raw/` (이름 정리 · Mono/ · 파일명 접두어 · data.yaml · session.yaml) |
 | `tools/rename_sessions.py` | 예전 세션 이름(`kimm_…_메모`) → `YYMMDD_HHMMSS` + session.yaml |
-| `configs/` | `preprocess.kimm.yaml`, `train.*.yaml` (+ 공통 `base/train.yaml`), `eval.*.yaml` |
+| `configs/` | `preprocess.<환경>.yaml`, `train.{split,deploy}.<환경>.yaml` (+ 공통 `base/train.<환경>.yaml`), `eval.{split,deploy}.<환경>.yaml` |
 
 ## 설치 · 실행
 
@@ -40,9 +40,9 @@ uv sync --extra train --extra export        # torch(cu128) · ultralytics · ONN
 uv run labeller/server.py                   # 라벨러 → http://localhost:8765
 uv run preprocess.py                        # → ../datasets/kimm/processed_seg/
 uv run preprocess.py --task obb             # → ../datasets/kimm/processed_obb/ (OBB 학습할 때만)
-uv run train.py --config train.kimm.single.yaml
-uv run eval.py --config eval.single.yaml
-uv run infer.py --dataset kimm --weights runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt --source ../datasets/kimm/raw/261019_161818
+uv run train.py --config train.split.kimm.yaml
+uv run eval.py --config eval.split.kimm.yaml
+uv run infer.py --dataset kimm --weights runs/kimm/segment/kimm-yolo26s-seg-split/weights/best.pt --source ../datasets/kimm/raw/261019_161818
 ```
 
 > **`uv sync` 는 항상 `--extra train --extra export` 와 함께.** extra 없이 돌리면 uv 가 환경을
@@ -97,8 +97,8 @@ datasets/<환경>/                환경 = kimm 또는 bestfa
     images/{train,val,test}/
     labels/{train,val,test}/    전처리한 이미지 좌표의 YOLO seg 라벨
     preview/                    라벨을 그린 산출물 몇 장 (크롭 확인용)
-    data.yaml                   train/val/test 분할 그대로 (train.single · eval)
-    data.all.yaml               배포용 전체 데이터 목록 (train.*_all.yaml)
+    data.yaml                   train/val/test 분할 그대로 (train.split · eval)
+    data.all.yaml               배포용 전체 데이터 목록 (train.deploy.*.yaml)
     manifest.yaml               세션별 split · 장수 · 지문, 전체 지문, 전처리 설정
     manifest.files.tsv          파일 하나하나: split · 세션 · 산출 이름 · 원본 sha256 · 라벨 sha256
   processed_obb/                같은 소스를 --task obb 로 변환한 결과 (구조 동일)
@@ -162,8 +162,9 @@ uv run tools/waiting_to_raw.py --dataset bestfa --dry-run   # 계획만
 | 라벨러 (`uv run labeller/server.py`) | GUI 프리셋 **KIMM** | GUI 프리셋 **BestFA** |
 | seg 전처리 | `uv run preprocess.py --dataset kimm` | `uv run preprocess.py --dataset bestfa` |
 | obb 전처리 | 위 명령에 `--task obb` 추가 | 위 명령에 `--task obb` 추가 |
-| 측정 학습 | `uv run train.py --config train.kimm.single.yaml` | `uv run train.py --config train.bestfa.single.yaml` |
-| 평가 | `eval.single.yaml` (val) / `eval.final.yaml` (test) | `eval.bestfa.single.yaml` (val만) |
+| 측정 학습 | `uv run train.py --config train.split.kimm.yaml` | `uv run train.py --config train.split.bestfa.yaml` |
+| 배포 학습 | `uv run train.py --config train.deploy.kimm.yaml` | `uv run train.py --config train.deploy.bestfa.yaml` |
+| 평가 | `eval.split.kimm.yaml` (test) / `eval.deploy.kimm.yaml` (val) | `eval.split.bestfa.yaml` (val) / `eval.deploy.bestfa.yaml` (val) |
 
 라벨러는 GUI에서 환경을 고른다. 전처리·추론은 `--dataset` 생략 시 KIMM을 사용한다.
 학습/평가는 항상 `--config`로 선택한다.
@@ -217,16 +218,17 @@ BestFA DB 의 세션 폴더(`<YYMMDD_HHMMSS[_메모]>/Mono` 또는 `Image`)를 `
 
 ### 학습 중 원본 크롭 위치 이동
 
-KIMM과 BestFA의 `configs/base/kimm.yaml`, `configs/base/bestfa.yaml`에 `source_crop`이 켜져 있다. 학습 샘플을 읽을 때마다
-원본 이미지에서 세션에 저장한 가로·세로 위치에 각각 **±25%p**를 더하고, 크롭 크기는 유지한다.
-`offset_x: [-25, 25]`, `offset_y: [-25, 25]`로 이동 범위를 설정한다. 합산 후 0~100으로 제한한다.
-예: 저장 위치 10에서 -25 이동하면 0, 90에서 +25 이동하면 100이다. 원본 픽셀의 ±25%를 뜻하지 않는다.
+BestFA의 `configs/base/train.bestfa.yaml`에 `source_crop`이 켜져 있다 (KIMM은 끔 — 11/09 분리 실험 B에서
+mask mAP50-95가 0.80 → 0.55로 떨어짐). 학습 샘플을 읽을 때마다
+원본 이미지에서 세션에 저장한 ROI 위치(ROI 가 여럿이면 샘플마다 자기 ROI)에 이동량을 더하고, 크롭 크기는 유지한다.
+BestFA 는 `offset_x: [-5, 5]`, `offset_y: [0, 5]` — 좌우 ±5%p · 아래로 0~5%p (앱이 같은 ROI 로 추론하므로 작게). 합산 후 0~100으로 제한한다.
+%p 는 남는 폭 기준이다: 2448 원본 · 640 ROI 면 (2448-640)×5% ≈ ±90px. 원본 픽셀의 ±5%를 뜻하지 않는다.
 폴리곤도 같은 창으로 잘라서 좌표를 변환한다. 창에서 사라진 객체는 정답에서 제외하며,
 객체가 하나도 남지 않은 샘플은 배경 이미지로 학습한다.
 
 - train 로더만 랜덤 크롭한다. val/test 및 일반 추론은 저장된 고정 크롭을 쓴다.
   배포용 all은 학습 입력으로 합친 세션 전체에 적용하고, 검증 로더는 고정 크롭을 유지한다.
-- 중복 이동을 피하려고 KIMM과 BestFA 모두 `translate`는 0이다.
+- 중복 이동을 피하려고 source_crop을 켜면 `translate`는 0이어야 한다 (train.py가 강제).
 - 전처리가 `crop_sources.json`에 원본 경로·해시, 원본 좌표 라벨 사본, 세션 크롭을 기록한다.
   이 파일의 해시도 manifest에 포함하고 학습 이력에 사본을 보관한다. 원본 이미지가 변경되면 학습 시작 전에 중단한다.
 - **이 기능 이전에 전처리한 데이터는 다시 전처리해야 한다.** 현재 학습이 같은 산출물을 읽고 있다면
@@ -243,27 +245,30 @@ KIMM과 BestFA의 `configs/base/kimm.yaml`, `configs/base/bestfa.yaml`에 `sourc
 
 | config | 모델 | 데이터 | 종료 | 앱 |
 |---|---|---|---|---|
-| `train.kimm.single.yaml` | seg | train 세션 / val·test 분리 | early stop (patience 50) | 평가 후 배포 |
-| `train.bestfa.single.yaml` | seg | BestFA train / val 세션 분리 (test 없음) | early stop (patience 50) | 평가 후 배포 |
+| `train.split.kimm.yaml` | seg | train 세션 / val·test 분리 | 60 epoch, val 로 best 선택 | 측정용 (export 안 함) |
+| `train.split.bestfa.yaml` | seg | BestFA train / val 세션 분리 (test 없음) | 60 epoch, val 로 best 선택 | 측정용 (export 안 함) |
+| `train.deploy.kimm.yaml` | seg | train+val+test 전체 | 41 epoch | ONNX export → 배포 |
+| `train.deploy.bestfa.yaml` | seg | train+val 전체 | 18 epoch | ONNX export → 배포 |
 
-- **배포 순서**: `single`로 학습 설정을 결정하고 test로 평가한 뒤, `*_all`로 전체 데이터를 학습해 배포한다.
-  `single`의 평가 결과와 `all` 배포 모델의 학습 기록은 구분한다. `all`의 val 점수는 독립 평가가 아니다.
-- **배포용 설정**: KIMM은 `train.seg_all.yaml` / `train.obb_all.yaml`, BestFA는
-  `train.bestfa.seg_all.yaml` / `train.bestfa.obb_all.yaml`을 사용한다. OBB는 전처리 `--task obb`가 필요하다.
-  `epochs`는 기존 값(KIMM 15, BestFA 100)이므로 실행 전에 결정한다. 자동 갱신되지 않으며
-  `patience: 0`으로 early stopping은 끈다.
-- **공통 설정**은 `configs/base/train.yaml`이며 환경별 기하 증강은 `base/kimm.yaml`과
-  `base/bestfa.yaml`에 둔다. 각 실행 설정은 환경별 base를 상속한다. 같은 환경의 single과 all은 같은 증강을 사용한다.
-- **KIMM 증강**: 세션 저장 크롭 위치에서 ±25%p 이동, 회전 ±5°, 확대·축소 0.9~1.1배.
-  별도 이동·기울이기·원근·좌우 반전은 끈다.
-- **BestFA 증강**: 세션 저장 크롭 위치에서 ±25%p 이동, 회전 ±25°, 확대·축소 0.8~1.2배, 기울이기 ±2°, 원근 0.0002,
+- **배포 순서**: `split`으로 학습하고 평가한 뒤, `deploy`로 전체 데이터를 학습해 배포한다.
+  `deploy`의 `epochs`는 `split`의 best epoch로 손으로 맞춘다 (자동 갱신 안 됨).
+  `deploy`의 val은 학습에 포함되어 있어 점수가 독립 평가가 아니다.
+- **공통 설정**은 환경별 `configs/base/train.kimm.yaml` / `base/train.bestfa.yaml` 하나에 모두 있다
+  (모델·optimizer·증강·export). split과 deploy는 데이터·epochs·이름만 덮으므로 같은 증강을 사용한다.
+- **optimizer는 AdamW lr 0.002로 고정**한다. `auto`는 총 iteration이 10,000을 넘으면 MuSGD(lr 0.01)를
+  고르는데, 그 실행은 best가 4~6 epoch에서 나온 뒤 무너졌다 (KIMM mask mAP50-95 0.58 vs AdamW 0.81).
+  early stopping도 끄고(`patience: 0`) cosine LR을 끝까지 내린다.
+- **KIMM 증강**: 이동 ±5%, 회전 ±5°, 확대·축소 0.9~1.1배, 밝기·감마 0.5~2배(확률 0.8), 블러(확률 0.2).
+  원본 크롭 이동·기울이기·원근·좌우 반전은 끈다 (11/09 분리 실험 C).
+- **BestFA 증강**: 세션 ROI 위치에서 좌우 ±5%p · 아래로 0~5%p 이동, 회전 ±25°, 확대·축소 0.8~1.2배, 기울이기 ±2°, 원근 0.0002,
   좌우 반전 확률 50%. 좌우 반전의 효과는 val에서 비교한다.
 - **공통 증강**: 상하 반전·mosaic·mixup·copy-paste는 끈다. 감마 0.5~2.0(로그 균등, 확률 80%) → 밝기 0.5~2배(로그 균등, 확률 80%)를 독립 적용하고,
   블러(확률 20%, sigma 1~3)는 기존 값을 유지한다. preview에서 와이어 끝이 사라지거나 포화되는지 확인한다.
 - **보기**: TensorBoard(`uv run tensorboard --logdir runs` 또는 task) 와, 매 val 마다
   `<실행 폴더>/overlays/epoch_NNN.jpg` (원본 4장 + 증강 12장, 증강 값 표시, 초록 = 정답, 파랑 = 추론 마스크(옅게)). 끝나면 `best.jpg`.
 - **증강 미리보기**: `stages: {preview_aug: true, train: false, export: false}` → `runs/preview/aug/`.
-- **export 만**: `stages: {preview_aug: false, train: false, export: true}` — 최신 실행의 best.pt 를 ONNX 로.
+- **export 만**: `stages: {preview_aug: false, train: false, export: true}` — 최신 실행의 체크포인트를 ONNX 로.
+  내보낼 체크포인트는 `export.weights` (기본 `[best]`, base config 는 `[best, last]`) → `weights/best.onnx` · `last.onnx`.
 - **배포**: 학습은 앱을 건드리지 않는다. 쓸 실행을 `uv run archive.py runs/<task>/<name>/<시각>` (또는 task
   `archive`) 로 저장소 루트 `weights/` 에 보관(Git LFS)하고, `weights/deploy.yaml` 에서
   `yolo26s-seg.onnx: yolo26s-seg-all/<시각>` 처럼 고른 뒤 커밋 → 앱 빌드가 그 `best.onnx` 를 실행 파일 옆
@@ -288,9 +293,10 @@ KIMM과 BestFA의 `configs/base/kimm.yaml`, `configs/base/bestfa.yaml`에 `sourc
 
 ## 평가 · 추론
 
-- `eval.single.yaml` — val 세션 (학습 중 best 선택에 쓰인 것).
-- `eval.final.yaml` — **test 세션, 측정용 모델에 딱 한 번.** 이 결과를 보고 설정을 다시 만지면 test 가
+- `eval.split.kimm.yaml` — **test 세션, 측정용 모델에 딱 한 번.** 이 결과를 보고 설정을 다시 만지면 test 가
   오염된다.
+- `eval.split.bestfa.yaml` — val 세션 (BestFA 는 test 가 없다).
+- `eval.deploy.<환경>.yaml` — 배포 모델을 val 로 확인. 학습에 포함된 데이터라 그림으로 동작만 본다.
 - 그림: `eval/<시각>__<가중치>__<데이터셋>-<split>/` — 초록 = 정답, 빨강 = 추론(seg 는 마스크 윤곽),
   점선 = 가장 아래 두 점의 y (와이어 끝 높이 오차).
 - `infer.py --dataset <환경>` — 크롭(`auto` = 선택한 환경의 설정, `W H CX CY`, `none`) 후 예측.
@@ -303,11 +309,9 @@ KIMM과 BestFA의 `configs/base/kimm.yaml`, `configs/base/bestfa.yaml`에 `sourc
 | 바꿀 내용 | 파일 |
 |---|---|
 | 원본 경로, 세션 분할, 크롭, 기준 이미지 | `configs/preprocess.kimm.yaml` / `preprocess.bestfa.yaml` |
-| 시작 모델, 학습 데이터, epochs/patience, 결과 경로 | `configs/train.kimm.single.yaml` / `train.bestfa.single.yaml` |
-| GPU, batch, 입력 크기, 밝기·블러, ONNX export | `configs/base/train.yaml` |
-| 환경별 회전·이동·스케일·반전 | `configs/base/kimm.yaml` / `base/bestfa.yaml` |
-| 평가 가중치, 데이터, val/test, 이미지 저장 경로 | `configs/eval.*.yaml` |
-| 공통 평가 해상도, GPU, 시각화 | `configs/base/eval.yaml` |
+| 학습 데이터, epochs, 결과 이름 | `configs/train.{split,deploy}.<환경>.yaml` |
+| 시작 모델, optimizer, GPU, batch, 증강, ONNX export | `configs/base/train.<환경>.yaml` |
+| 평가 가중치, 데이터, val/test, 해상도, 시각화 | `configs/eval.{split,deploy}.<환경>.yaml` |
 
 - `base:` 경로는 해당 YAML 파일 기준이다. dict는 키별 병합하고 리스트·단일 값은 교체한다.
   학습과 평가는 각각 공통 base를 상속하며, 전처리는 라벨러에서 직접 읽고 수정하므로 독립 파일로 둔다.
@@ -341,4 +345,4 @@ CI(`.github/workflows/ci.yml`)가 push 마다 돌리고, 앱 빌드·포맷도 �
 |---|---|
 | 크롭 창 계산 (크기 0 = 전체, 위치 0~100%) | `preprocess.crop_rect` · 앱 `FrameCropper.cs` · 라벨러 `index.html` `cropRect()` |
 | 와이어 자세 (긴 변 = 축, 우측 상단 꼭짓점 = 피벗) | `labeller/edge.obb_pose` · 라벨러 `index.html` `poseFromPoints()` |
-| 증강 범위 | `configs/base/train.yaml` → 학습(Ultralytics)과 `epoch_overlay.py`(값 표시용 재현) |
+| 증강 범위 | `configs/base/train.<환경>.yaml` → 학습(Ultralytics)과 `epoch_overlay.py`(값 표시용 재현) |

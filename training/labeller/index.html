@@ -232,6 +232,7 @@
           <button id="edge2-run" class="primary">이 세션 전체</button>
           <button id="edge2-run-one">이 이미지</button>
           <button id="edge21-run" title="이 세션 전체를 edge 2 로 계산한 뒤, '낮음'으로 나온 장만 edge 1 로 다시 계산">2 → 낮음은 1</button>
+          <button id="edge12-run" title="이 세션 전체를 edge 1 로 계산한 뒤, '낮음'으로 나온 장만 edge 2 로 다시 계산">1 → 낮음은 2</button>
         </div>
         <div class="row" title="저장된 OBB 4점을 그대로 폴리곤으로">
           <span class="lbl">OBB as edge</span>
@@ -261,6 +262,10 @@
       <fieldset id="crop-box" class="p-crop">
         <legend>크롭 — <span id="crop-config">환경 설정</span> · <span id="crop-src">-</span>
           <span id="crop-state" class="unsaved"></span></legend>
+        <div class="row" id="roi-row" hidden>
+          <span id="roi-tabs"></span>
+          <button id="roi-fit" title="선택한 ROI 를 같은 번호 와이어 박스의 가운데로 옮깁니다 (크기는 그대로)">와이어에 맞춤</button>
+        </div>
         <div class="row">
           <label class="unit"><input id="crop-on" type="checkbox"> 사용</label>
           <input id="crop-w" type="number" min="0" step="1">
@@ -269,9 +274,9 @@
           <span class="unit">px (0 = 원본 전체)</span>
         </div>
         <div class="row">
-          <span class="unit">↔</span><input id="crop-x" type="range" min="0" max="100" step="1">
+          <span class="unit">↔</span><input id="crop-x" type="range" min="0" max="100" step="0.1">
           <span id="crop-xv" class="val"></span>
-          <span class="unit">↕</span><input id="crop-y" type="range" min="0" max="100" step="1">
+          <span class="unit">↕</span><input id="crop-y" type="range" min="0" max="100" step="0.1">
           <span id="crop-yv" class="val"></span>
         </div>
         <div class="row">
@@ -801,13 +806,26 @@ function edited() {
 
 // ── 크롭 — preprocess.py crop_rect() 와 같은 공식 · 앱 FrameCropper 와 같은 % 규약 ──
 
-function cropRect(W, H) {
-  if (!crop || !crop.enabled || crop.auto) return null;
+// crop = { configured, enabled, auto, note, roi_count, rois: [{width, height, center_x, center_y}] }
+// rois 는 언제나 roi_count 개 (서버 crop_state). BestFA 는 ROI 2개 — ROI 하나에 와이어 하나이고,
+// 전처리는 ROI 마다 샘플을, 앱은 ROI 마다 추론을 따로 한다. 조절칸은 선택한 ROI(activeRoi) 를 바꾼다.
+let activeRoi = 0;
+const roiCount = () => (crop && crop.rois.length) || 1;
+const activeWindow = () => crop.rois[activeRoi];
+const pct = v => `${(Math.round(v * 10) / 10).toFixed(1)}%`;
+
+/** ROI 하나의 창 [x, y, w, h] (이미지 px). */
+function windowRect(r, W, H) {
   const size = (want, src) => { want = want || 0; return want <= 0 ? src : Math.min(want, src); };
-  const w = size(crop.width, W), h = size(crop.height, H);
-  const cx = Math.min(Math.max(crop.center_x, 0), 100), cy = Math.min(Math.max(crop.center_y, 0), 100);
-  const x = Math.round((W - w) * cx / 100), y = Math.round((H - h) * cy / 100);
-  return [x, y, w, h];
+  const w = size(r.width, W), h = size(r.height, H);
+  const cx = Math.min(Math.max(r.center_x, 0), 100), cy = Math.min(Math.max(r.center_y, 0), 100);
+  return [Math.round((W - w) * cx / 100), Math.round((H - h) * cy / 100), w, h];
+}
+
+/** 크롭 창 전부 (ROI 순서). 크롭이 꺼져 있거나 auto 면 빈 목록. */
+function cropRects(W, H) {
+  if (!crop || !crop.enabled || crop.auto) return [];
+  return crop.rois.map(r => windowRect(r, W, H));
 }
 
 function setCropUI() {
@@ -820,17 +838,38 @@ function setCropUI() {
     note.textContent = `${cfg.config} 에 ${cfg.source} 소스가 없어 크롭을 조절할 수 없습니다.`;
     return;
   }
+  activeRoi = Math.min(activeRoi, roiCount() - 1);
+  const multi = roiCount() > 1;
+  document.getElementById("roi-row").hidden = !multi;
+  if (multi) {
+    makeSegButtons(document.getElementById("roi-tabs"),
+                   crop.rois.map((_, i) => [i, `ROI ${i + 1}`]), i => selectRoi(i));
+    markSeg(document.getElementById("roi-tabs"), activeRoi);
+  }
   fs.disabled = !!crop.auto;
   note.textContent = crop.auto
     ? "auto_crop 이 켜져 있어 이미지마다 라벨에서 창을 잡습니다 — 고정 창이 없습니다."
-    : crop.configured ? "이 세션에 저장된 크롭을 사용합니다."
+    : crop.note ? crop.note
+    : crop.configured ? (multi ? `이 세션에 저장된 ROI ${roiCount()}개를 사용합니다 — ROI 하나에 와이어 하나.`
+                               : "이 세션에 저장된 크롭을 사용합니다.")
+    : multi ? `ROI 미설정 — ROI ${roiCount()}개를 와이어마다 하나씩 맞춰 저장해야 전처리할 수 있습니다.`
     : "크롭 미설정 — 저장 전에는 전처리할 수 없습니다. 크롭하지 않을 때도 사용을 끄고 저장하세요.";
-  document.getElementById("crop-on").checked = crop.enabled;
-  document.getElementById("crop-w").value = crop.width;
-  document.getElementById("crop-h").value = crop.height;
-  document.getElementById("crop-x").value = crop.center_x;
-  document.getElementById("crop-y").value = crop.center_y;
+  // ROI 가 여럿이면 크롭을 끌 수 없다 (전처리·앱이 ROI 마다 따로 돌기 때문)
+  const on = document.getElementById("crop-on");
+  on.checked = crop.enabled;
+  on.disabled = multi && crop.enabled;
+  const r = activeWindow();
+  document.getElementById("crop-w").value = r.width;
+  document.getElementById("crop-h").value = r.height;
+  document.getElementById("crop-x").value = r.center_x;
+  document.getElementById("crop-y").value = r.center_y;
   renderCropMeta();
+}
+
+function selectRoi(index) {
+  activeRoi = index;
+  setCropUI();
+  draw();
 }
 
 function readCropUI() {
@@ -838,19 +877,39 @@ function readCropUI() {
     const v = Number(document.getElementById(id).value);
     return Number.isFinite(v) && v >= 0 ? Math.round(v) : fallback;
   };
+  const r = activeWindow();
   crop.enabled = document.getElementById("crop-on").checked;
-  crop.width = num("crop-w", crop.width);
-  crop.height = num("crop-h", crop.height);
-  crop.center_x = Number(document.getElementById("crop-x").value);
-  crop.center_y = Number(document.getElementById("crop-y").value);
+  r.width = num("crop-w", r.width);
+  r.height = num("crop-h", r.height);
+  r.center_x = Number(document.getElementById("crop-x").value);
+  r.center_y = Number(document.getElementById("crop-y").value);
   cropDirty = true;
   renderCropMeta();
   draw();
 }
 
+/** 선택한 ROI 를 같은 번호 와이어 박스의 경계상자 가운데로 — 크기는 그대로, 이미지 밖으로는 안 나감. */
+function fitRoiToWire() {
+  const b = boxes[activeRoi];
+  if (!crop || !b) { setStatus(`와이어 ${activeRoi + 1} 박스가 없습니다.`, true); return; }
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const pts = corners(b);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const r = activeWindow();
+  const [, , w, h] = windowRect(r, W, H);
+  const at = (lo, hi, size, src) => src > size
+    ? Math.round(Math.min(Math.max(((lo + hi) / 2 - size / 2) / (src - size) * 100, 0), 100) * 10) / 10 : 50;
+  r.center_x = at(Math.min(...xs), Math.max(...xs), w, W);
+  r.center_y = at(Math.min(...ys), Math.max(...ys), h, H);
+  cropDirty = true;
+  setCropUI();
+  draw();
+}
+
 function renderCropMeta() {
-  document.getElementById("crop-xv").textContent = `${crop.center_x.toFixed(0)}%`;
-  document.getElementById("crop-yv").textContent = `${crop.center_y.toFixed(0)}%`;
+  const r = activeWindow();
+  document.getElementById("crop-xv").textContent = pct(r.center_x);
+  document.getElementById("crop-yv").textContent = pct(r.center_y);
   document.getElementById("crop-state").textContent = cropDirty ? "· 미저장" : crop.configured ? "" : "· 설정 필요";
 }
 
@@ -883,13 +942,14 @@ async function saveCrop() {
   cropSaving = true;
   document.getElementById("crop-box").disabled = true;
   try {
-    const res = await post("/api/crop", { ...crop, name: files[idx].name });
+    const res = await post("/api/crop", { enabled: crop.enabled, rois: crop.rois, name: files[idx].name });
     crop = { ...res.crop };
     cropDirty = false;
     setCropUI();
     draw();
-    setStatus(`크롭 저장됨 → ${session}/crop.yaml: ${crop.width}×${crop.height} ` +
-              `(${crop.center_x}%, ${crop.center_y}%)`);
+    const desc = crop.rois.map((r, i) => (roiCount() > 1 ? `ROI ${i + 1} ` : "") +
+                               `${r.width}×${r.height} (${pct(r.center_x)}, ${pct(r.center_y)})`).join(" · ");
+    setStatus(`크롭 저장됨 → ${session}/crop.yaml: ${crop.enabled ? desc : "사용 안 함"}`);
   } catch (e) { setStatus(e.message, true); }
   finally { cropSaving = false; setCropUI(); }
 }
@@ -898,21 +958,31 @@ async function saveCrop() {
 // 이 소스는 type: obb 라 클리핑 결과가 그대로 나가므로, 꼭짓점이 4개가 아닌 라벨이
 // 조용히 processed/ 에 남습니다(면적이 min_area 미만이면 인스턴스째 사라짐).
 // → 창 밖으로 나간 꼭짓점 수를 세어 경고합니다.
-function outsideCount() {
-  const rect = cropRect(img.naturalWidth, img.naturalHeight);
-  if (!rect || !box) return 0;
-  const [x, y, w, h] = rect;
-  return boxes.flatMap(corners).filter(([px, py]) => px < x || py < y || px > x + w || py > y + h).length;
+// ROI 가 여럿이면 와이어 k 는 ROI k 안에 통째로 들어가야 합니다 (ROI 하나에 와이어 하나 —
+// 와이어·ROI 둘 다 왼쪽부터 1, 2). 이웃 와이어가 ROI 에 걸치는 건 괜찮습니다 (잘려서 남음).
+function outsideWires() {
+  const rects = cropRects(img.naturalWidth, img.naturalHeight);
+  if (!rects.length || !box) return [];
+  const out = [];
+  boxes.forEach((b, i) => {
+    const [x, y, w, h] = rects.length > 1 ? (rects[i] || rects[rects.length - 1]) : rects[0];
+    const n = corners(b).filter(([px, py]) => px < x || py < y || px > x + w || py > y + h).length;
+    if (n) out.push([i, n]);
+  });
+  return out;
 }
 
 function renderWarn() {
   const el = document.getElementById("warn");
-  const n = outsideCount();
-  el.className = "warn" + (n ? " on" : "");
-  el.textContent = n
-    ? `박스 꼭짓점 ${n}개가 크롭 창(빨간 사각형) 밖입니다 — 전처리에서 잘려 나가 OBB 가 ` +
-      `망가집니다. 박스를 창 안으로 넣거나 크롭을 넓히세요.`
-    : "";
+  const bad = outsideWires();
+  const multi = cropRects(img.naturalWidth || 1, img.naturalHeight || 1).length > 1;
+  el.className = "warn" + (bad.length ? " on" : "");
+  el.textContent = !bad.length ? ""
+    : multi
+    ? bad.map(([i, n]) => `와이어 ${i + 1} 꼭짓점 ${n}개가 ROI ${i + 1} 밖`).join(", ") +
+      ` — 전처리에서 잘립니다. ROI 를 옮기거나("와이어에 맞춤") 넓히세요.`
+    : `박스 꼭짓점 ${bad.reduce((s, [, n]) => s + n, 0)}개가 크롭 창(빨간 사각형) 밖입니다 — ` +
+      `전처리에서 잘려 나가 OBB 가 망가집니다. 박스를 창 안으로 넣거나 크롭을 넓히세요.`;
 }
 
 function renderRefWarn() {
@@ -972,20 +1042,30 @@ function composeBackground() {
 }
 
 /** 앱 UpdateCropOverlay 와 같은 모양: 어두운 밑줄 + 빨간 선 + 좌상단 라벨. */
+/** ROI 가 여럿이면 각각 "ROI k" 라벨, 선택한 ROI 는 진하게 · 나머지는 흐리게. */
 function drawCrop() {
-  const rect = cropRect(img.naturalWidth, img.naturalHeight);
-  if (!rect) return;
-  const [x, y, w, h] = rect.map(v => v * scale);
-  ctx.save();
-  ctx.strokeStyle = "rgba(0,0,0,.69)"; ctx.lineWidth = 4; ctx.strokeRect(x, y, w, h);
-  ctx.strokeStyle = "#FF3B30"; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
-  const text = `${rect[2]}×${rect[3]}  (${crop.center_x.toFixed(0)}%, ${crop.center_y.toFixed(0)}%)`;
-  ctx.font = "bold 11px 'Segoe UI', sans-serif";
-  const tw = ctx.measureText(text).width + 8, th = 16;
-  const ty = y - th - 2 >= 0 ? y - th - 2 : y + 2;
-  ctx.fillStyle = "rgba(0,0,0,.69)"; ctx.fillRect(x, ty, tw, th);
-  ctx.fillStyle = "#FF6B60"; ctx.textBaseline = "middle"; ctx.fillText(text, x + 4, ty + th / 2);
-  ctx.restore();
+  const rects = cropRects(img.naturalWidth, img.naturalHeight);
+  const multi = rects.length > 1;
+  rects.forEach((rect, i) => {
+    const r = crop.rois[i];
+    const [x, y, w, h] = rect.map(v => v * scale);
+    const dim = multi && i !== activeRoi;
+    ctx.save();
+    ctx.globalAlpha = dim ? 0.55 : 1;
+    ctx.strokeStyle = "rgba(0,0,0,.69)"; ctx.lineWidth = 4; ctx.strokeRect(x, y, w, h);
+    ctx.strokeStyle = "#FF3B30"; ctx.lineWidth = 2;
+    if (dim) ctx.setLineDash([6, 4]);
+    ctx.strokeRect(x, y, w, h);
+    const text = (multi ? `ROI ${i + 1}  ` : "") +
+                 `${rect[2]}×${rect[3]}  (${pct(r.center_x)}, ${pct(r.center_y)})`;
+    ctx.font = "bold 11px 'Segoe UI', sans-serif";
+    const tw = ctx.measureText(text).width + 8, th = 16;
+    // 위쪽 라벨이 겹치지 않게 두 번째 ROI 부터는 창 안쪽 아래로
+    const ty = i > 0 ? y + h - th - 2 : (y - th - 2 >= 0 ? y - th - 2 : y + 2);
+    ctx.fillStyle = "rgba(0,0,0,.69)"; ctx.fillRect(x, ty, tw, th);
+    ctx.fillStyle = "#FF6B60"; ctx.textBaseline = "middle"; ctx.fillText(text, x + 4, ty + th / 2);
+    ctx.restore();
+  });
 }
 
 /** 길이 손잡이 위치 — 와이어 끝 변의 가운데 (캔버스 px). */
@@ -1210,7 +1290,7 @@ async function computeEdges(method, only = null) {
     if (!only) setStatus("이 세션에 라벨된 이미지가 없습니다 — OBB 를 먼저 잡으세요.", true);
     return;
   }
-  const btns = ["edge-run", "edge-run-one", "edge2-run", "edge2-run-one", "edge21-run", "edge-obb", "edge-obb-one",
+  const btns = ["edge-run", "edge-run-one", "edge2-run", "edge2-run-one", "edge21-run", "edge12-run", "edge-obb", "edge-obb-one",
                 "seg-all", "seg-all-low", "seg-one", "delete-low"]
     .map(id => document.getElementById(id));
   computingEdges += 1;
@@ -1249,17 +1329,19 @@ async function computeEdges(method, only = null) {
 }
 
 /**
- * 이 세션 전체를 edge 2 로 계산한 뒤, '낮음'으로 나온 장만 edge 1 로 다시 계산 (BestFA).
- * 그 장들은 edge 1 결과로 바뀐다 — edge 1 도 낮음이어도 edge 1 결과가 남음 ('못 찾음'은 그대로 edge 2).
+ * 이 세션 전체를 first 방식으로 계산한 뒤, '낮음'으로 나온 장만 second 방식으로 다시 계산 (BestFA).
+ * "2 → 낮음은 1" = ("2", "1"), "1 → 낮음은 2" = ("1", "2").
+ * 그 장들은 second 결과로 바뀐다 — second 도 낮음이어도 second 결과가 남음 ('못 찾음'은 그대로 first).
  */
-async function computeEdges2Then1() {
-  await computeEdges("2");
+async function computeEdgesThen(first, second) {
+  const [a, b] = [EDGE_METHOD_NAME[first], EDGE_METHOD_NAME[second]];
+  await computeEdges(first);
   const lows = sessionView().map(i => files[i].name)
-    .filter(n => { const r = edges.get(n); return r && r.method === "2" && r.status === "low"; });
-  if (!lows.length) { setStatus("edge 2 결과에 '낮음'이 없습니다 — edge 1 로 다시 계산할 장 없음"); return; }
-  await computeEdges("1", lows);
+    .filter(n => { const r = edges.get(n); return r && r.method === first && r.status === "low"; });
+  if (!lows.length) { setStatus(`${a} 결과에 '낮음'이 없습니다 — ${b} 로 다시 계산할 장 없음`); return; }
+  await computeEdges(second, lows);
   const still = lows.filter(n => { const r = edges.get(n); return r && r.status !== "ok"; }).length;
-  setStatus(`edge 2 '낮음' ${lows.length}장 → edge 1 로 다시 계산 (그중 edge 1 도 OK 아님 ${still}장)`);
+  setStatus(`${a} '낮음' ${lows.length}장 → ${b} 로 다시 계산 (그중 ${b} 도 OK 아님 ${still}장)`);
 }
 
 /** 지금 이미지만 계산 — 서버는 디스크의 OBB 로 계산하므로 고친 박스는 먼저 저장해야 한다. */
@@ -1455,7 +1537,7 @@ async function screenMatchesDisk(name) {
 
 async function copyToAll(overwrite, fromHere = false, toPos = null) {
   if (!box) return;
-  const out = outsideCount();
+  const out = outsideWires().reduce((s, [, n]) => s + n, 0);
   const here = files[idx];
   const view = sessionView();
   const pos = view.indexOf(idx);
@@ -1473,8 +1555,8 @@ async function copyToAll(overwrite, fromHere = false, toPos = null) {
     count = view.length - pos;
     range = `${pos + 1}번부터 끝(${view.length}번)까지 ${count}장`;
   }
-  if (out && !confirm(`박스 꼭짓점 ${out}개가 크롭 창 밖입니다 — 전처리에서 OBB 가 ` +
-                      `망가집니다. 그래도 복사할까요?`)) return;
+  if (out && !confirm(`박스 꼭짓점 ${out}개가 크롭 창(ROI) 밖입니다 — 전처리에서 라벨이 ` +
+                      `잘립니다. 그래도 복사할까요?`)) return;
   // 와이어 하나만(BestFA) — 대상 장의 그 와이어만 바뀐다. 와이어 1개 환경은 항상 null
   const wire = wireCount() > 1 ? copyWire : null;
   const what = wire == null ? "지금 박스로" : `지금 와이어 ${wire + 1}로 (다른 와이어는 그대로)`;
@@ -1565,7 +1647,8 @@ document.getElementById("edge-obb").onclick = () => computeEdges("obb");
 document.getElementById("edge-run-one").onclick = () => computeCurrent("1");
 document.getElementById("edge2-run").onclick = () => computeEdges("2");
 document.getElementById("edge2-run-one").onclick = () => computeCurrent("2");
-document.getElementById("edge21-run").onclick = computeEdges2Then1;
+document.getElementById("edge21-run").onclick = () => computeEdgesThen("2", "1");
+document.getElementById("edge12-run").onclick = () => computeEdgesThen("1", "2");
 document.getElementById("edge-obb-one").onclick = () => computeCurrent("obb");
 document.getElementById("seg-all").onclick = () => saveSegSession(false);
 document.getElementById("seg-all-low").onclick = () => saveSegSession(true);
@@ -1592,6 +1675,7 @@ document.getElementById("crop-center").onclick = () => {
   readCropUI();
 };
 document.getElementById("crop-save").onclick = saveCrop;
+document.getElementById("roi-fit").onclick = fitRoiToWire;
 document.getElementById("seg-load").onclick = reloadSavedSeg;
 
 (async function init() {

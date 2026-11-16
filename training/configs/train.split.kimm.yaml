@@ -1,0 +1,11 @@
+# KIMM 측정용: train 으로 학습, val 로 best 선택. test 세션은 eval.split.kimm 에서 한 번만.
+# 여기서 나온 best epoch 로 train.deploy.kimm 의 epochs 를 정한다.
+base: base/train.kimm.yaml
+
+stages:
+  export: false  # 배포하지 않는 모델
+
+train:
+  data: ../datasets/kimm/processed_seg/data.yaml
+  epochs: 60
+  name: kimm-yolo26s-seg-split

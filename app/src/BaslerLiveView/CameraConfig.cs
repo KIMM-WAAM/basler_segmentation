@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Xml.Linq;
 
@@ -48,6 +49,15 @@ public sealed class CameraConfig
     /// 50 = centered). Adjustable live from the toolbar sliders.</summary>
     public double CropCenterX { get; set; } = 50;
     public double CropCenterY { get; set; } = 50;
+
+    /// <summary>Crop windows, one per ROI — inference runs on each separately and keeps
+    /// <see cref="MaxDetections"/> per ROI. From <c>&lt;Crop&gt;&lt;Roi&gt;</c> entries (BestFA:
+    /// two, one wire each, left to right like the labeller's ROI 1 / ROI 2); without any, the
+    /// single window above. The first entry is also mirrored into the single-window fields.</summary>
+    public List<CropWindow> CropRois { get; set; } = new();
+
+    /// <summary>Config problem that was worked around while loading (shown in the status bar).</summary>
+    public string? Warning { get; set; }
 
     /// <summary>Show the reference cutout (the fixed metal tube + wire, cut out of
     /// datasets/kimm/reference/reference.png by training/tools/make_reference_cutout.py) on top of the live
@@ -152,6 +162,20 @@ public sealed class CameraConfig
 
                 var cy = (double?)crop.Element("CenterY");
                 if (cy is >= 0 and <= 100) cfg.CropCenterY = cy.Value;
+
+                // <Roi> entries: same four fields each; an invalid field keeps the single-window value.
+                foreach (var roi in crop.Elements("Roi"))
+                {
+                    var rw = (int?)roi.Element("Width");
+                    var rh = (int?)roi.Element("Height");
+                    var rx = (double?)roi.Element("CenterX");
+                    var ry = (double?)roi.Element("CenterY");
+                    cfg.CropRois.Add(new CropWindow(
+                        rw is >= 0 ? rw.Value : cfg.CropWidth,
+                        rh is >= 0 ? rh.Value : cfg.CropHeight,
+                        rx is >= 0 and <= 100 ? rx.Value : cfg.CropCenterX,
+                        ry is >= 0 and <= 100 ? ry.Value : cfg.CropCenterY));
+                }
             }
 
             var overlay = root.Element("ReferenceOverlay");
@@ -194,6 +218,27 @@ public sealed class CameraConfig
         {
             // Fall back to defaults on any parse error.
         }
+
+        if (cfg.CropRois.Count == 0)
+        {
+            cfg.CropRois.Add(new CropWindow(cfg.CropWidth, cfg.CropHeight, cfg.CropCenterX, cfg.CropCenterY));
+        }
+        else
+        {
+            var first = cfg.CropRois[0];
+            (cfg.CropWidth, cfg.CropHeight, cfg.CropCenterX, cfg.CropCenterY) =
+                (first.Width, first.Height, first.CenterX, first.CenterY);
+        }
+        if (cfg.HardwareRoi && cfg.CropRois.Count > 1)
+        {
+            // The sensor has one acquisition window; several ROIs are cut in software.
+            cfg.HardwareRoi = false;
+            cfg.Warning = $"hardware_roi ignored: {cfg.CropRois.Count} ROIs need the full sensor (software crop)";
+        }
         return cfg;
     }
 }
+
+/// <summary>One crop window: size in pixels (0 = full extent on that axis) and position
+/// per axis in 0–100% — the training/preprocess.py crop_rect convention.</summary>
+public readonly record struct CropWindow(int Width, int Height, double CenterX, double CenterY);

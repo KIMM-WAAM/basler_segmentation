@@ -1,0 +1,1239 @@
+created: '2026-11-13T16:53:08+09:00'
+env: kimm
+source: kimm
+task: seg
+config: preprocess.kimm.yaml
+git:
+  commit: ea93d2073dab360dfa758556e7666a7e3b644603
+  dirty: true
+hash: sha256:14855d8fc1402e394eaafb93db3b430c28d1a2a36e53ef5725a5e3757625935e
+images:
+  train: 4055
+  val: 710
+  test: 614
+sessions:
+  '261024_134930':
+    split: train
+    images: 87
+    hash: sha256:3c5c6447ca8a0cc3a0eeffe9836a665cfdf9d6e30a961f90f87a74b45a431984
+    scene: Bayesian A
+    tags:
+    - slope_steep
+    - control
+    - Bayesian
+  '261024_140209':
+    split: train
+    images: 99
+    hash: sha256:dcb603775792773ff11c561be7bf4ed66f8fcdb8db794c463e7974c590291e63
+    scene: Kalman CV
+    tags:
+    - slope_steep
+    - control
+    - Kalman_CV
+  '261024_140851':
+    split: train
+    images: 100
+    hash: sha256:17f460bc8144ae25f0e12672dbc3fb2c0dee4e96771d5911c5149ed9bf8b135f
+    scene: Kalman RW
+    tags:
+    - slope_steep
+    - control
+    - Kalman_RW
+  '261024_153504':
+    split: train
+    images: 99
+    hash: sha256:6d9465b13bcd54103cc610b1e8d6f5f0ff73e222974254abda0b529227efc13c
+    scene: OLS trial with contact
+    tags:
+    - slope_steep
+    - control
+    - OLS
+  '261024_155555':
+    split: train
+    images: 100
+    hash: sha256:fdf999cbda6c1bfa7ac484911d53cb063a0eb6c67e9e32cc604220585e0568b7
+    scene: Bayesian B partial-reset
+    tags:
+    - slope_steep
+    - control
+    - Bayesian
+  '261025_203616':
+    split: train
+    images: 34
+    hash: sha256:12b1f0f99ade39051c7368ec69812e442c8e68d7317ac3aa952d3709709b02fc
+    tags:
+    - flat
+  '261025_204429':
+    split: train
+    images: 35
+    hash: sha256:f730b18dc90fffb9866bd2770df2b057ba371643ac0528c1f2c0b8fef47b56f6
+    tags:
+    - flat
+  '261025_204744':
+    split: train
+    images: 35
+    hash: sha256:29aad693d27a638d1ec298c5a75654966685580417507b73602739886a2d8b6a
+    tags:
+    - flat
+  '261025_223137':
+    split: val
+    images: 97
+    hash: sha256:e6260337e60bca075f1ac7627a10e03e805438632a5f283ebb5f252f6cc8c49b
+    scene: Bayesian C, 261025 재보정 후 첫 실행 (ControlOutput=sum)
+    tags:
+    - slope_steep
+    - control
+    - Bayesian
+  '261025_231217':
+    split: val
+    images: 100
+    hash: sha256:d7cb747396d936043c821cd656da83af7a38e46406807821383db3f02b52c7f8
+    scene: Kalman CV, 공통 재보정 비교
+    tags:
+    - slope_steep
+    - control
+    - Kalman_CV
+  '261025_232033':
+    split: val
+    images: 99
+    hash: sha256:0e52cab9673545af6d814321a2b460318f5b112252f8bfe56e4c32ab538daf17
+    scene: Kalman RW, 공통 재보정 비교
+    tags:
+    - slope_steep
+    - control
+    - Kalman_RW
+  '261025_232600':
+    split: val
+    images: 98
+    hash: sha256:5d3d6112faab3bcd513c30c7b4397e480c02b738b6b090ee7a65c7fe1bdb0e35
+    scene: OLS, 공통 재보정 비교
+    tags:
+    - slope_steep
+    - control
+    - OLS
+  '261027_113910':
+    split: train
+    images: 61
+    hash: sha256:12e49382d8e10df484ec5d219475792409cab9dd4a735c56748b5ae8ea009b4f
+    tags:
+    - flat
+  '261027_115401':
+    split: train
+    images: 62
+    hash: sha256:5eac8ea24ba3eaf657c32372152f1dc229fe91c3bc4528d8cab0599dcbda41f6
+    tags:
+    - flat
+  '261027_123246':
+    split: train
+    images: 61
+    hash: sha256:80194cc1b22e3b35de6c30f474052dc5156e34ad0103cb9f04c0d03ee0eeed32
+    tags:
+    - flat
+  '261027_132710':
+    split: train
+    images: 61
+    hash: sha256:4eb04271fab0aa0a7b1586f40a2266fdf0d50dca10424e70a577cac7f2e89433
+    tags:
+    - flat
+  '261027_141203':
+    split: train
+    images: 62
+    hash: sha256:74c52dbf3c94f71985d40f4df9ced465b9ba2b701980755fbb0086c3ea8f9ece
+    tags:
+    - flat
+  '261027_142545':
+    split: train
+    images: 62
+    hash: sha256:c3f4a5ea9dc67ae7e39c39a19defb6e8d238df5928485430d68733f414049773
+    tags:
+    - flat
+  '261027_144456':
+    split: train
+    images: 62
+    hash: sha256:89173b7c24fb60685c5f9640892c42c6a159b372c8f7c2e6b0d2f15ce9069c21
+    tags:
+    - flat
+  '261102_210333':
+    split: train
+    images: 34
+    hash: sha256:c41facc4d8710c155c38d8225d4d010fba12ebda7c21a0628b2c3982afdbac4f
+    tags:
+    - flat
+  '261102_211231':
+    split: train
+    images: 100
+    hash: sha256:c39ff740edef1c24a9836243869c4d225eee9d20bfce166b1defdfde2e814e5f
+    tags:
+    - flat
+  '261102_214411':
+    split: train
+    images: 100
+    hash: sha256:0bd0ae53bdd9043ea2ab0698fb15c2b798ca6925d3d8320409d2288681da6ce8
+    tags:
+    - flat
+  '261102_221322':
+    split: train
+    images: 72
+    hash: sha256:b920f82d6c85236ee6b0a0bfd5bef154d5556c0669dccf66cc81bc9c6a7b55e0
+    tags:
+    - flat
+  '261102_221556':
+    split: train
+    images: 72
+    hash: sha256:df098271f388d71b9298ecf0a4c3751203168a44d11664f9b38ab63a9eb0339e
+    tags:
+    - flat
+  '261102_222736':
+    split: train
+    images: 72
+    hash: sha256:71afd38f5aad3fadeda2bb75fd0a0cdafc4702576ec1668a83127e80df5a60b6
+    tags:
+    - flat
+  '261102_223525':
+    split: train
+    images: 16
+    hash: sha256:b7ed4d4013ec88b47d8d82a7297fabd92fea7f30b01ff3d7565a1627b9a8a0ae
+    tags:
+    - flat
+  '261102_223616':
+    split: train
+    images: 15
+    hash: sha256:97a467d69c4cab00eedfc2ecaa920a2551b9b0f5fbc807fb299d5e70e3d45d8b
+    tags:
+    - flat
+  '261102_223846':
+    split: train
+    images: 16
+    hash: sha256:f9e97aea6c9bab51b0a40faecd753f736a7fbbd0fa6457ad02601e3a43cf843a
+    tags:
+    - flat
+  '261102_224000':
+    split: train
+    images: 16
+    hash: sha256:4f4cf6a7ebad195255cf8df2d42c38eaff9789b7adf9dc4d8f22fb8ac8f50efa
+    tags:
+    - flat
+  '261102_224051':
+    split: train
+    images: 16
+    hash: sha256:c7e3aa88d7138485d9dfe5fdbadc329e7bde395f6b40be4b403233c5e4c07808
+    tags:
+    - flat
+  '261102_224307':
+    split: train
+    images: 100
+    hash: sha256:ca9215d5e010997a5a4efdcf4039e1d8e8ce281a3fc893c26fdbae6e4ac889a3
+    tags:
+    - flat
+  '261102_224846':
+    split: train
+    images: 100
+    hash: sha256:bb5767b1e9f4f195b53280fabf4bbf5c61395fa98a137c16240ea7e1ae20ae1e
+    scene: final
+    tags:
+    - flat
+  '261102_233436':
+    split: train
+    images: 40
+    hash: sha256:6d5330fac1c6f98f52eae37e1284951caae794d58845f83cc253fd4311c506a3
+    tags:
+    - flat
+  '261102_233731':
+    split: train
+    images: 97
+    hash: sha256:ec3bbe0f93e425e0609150faee3fed67c28a595a048327f93e5959b4a6d90895
+    scene: 기울기
+    tags:
+    - flat
+  '261103_143203':
+    split: train
+    images: 36
+    hash: sha256:b9e4bd6d9541e57aa4cb26f86f3c6c6e0e6e73362d32ae019b00628c466ae471
+    tags:
+    - flat
+  '261103_144109':
+    split: train
+    images: 37
+    hash: sha256:cc2e6a9c9c89d8d1721ae4eb7b8944911137d6aad952cc624cd8f60986b782ec
+    tags:
+    - flat
+  '261103_144522':
+    split: train
+    images: 37
+    hash: sha256:1890eb0164026b9f16b4656d594b775d0d762c5e0c27efaa12bc8f0f2bf2fefb
+    tags:
+    - flat
+  '261103_144708':
+    split: train
+    images: 36
+    hash: sha256:da3ef1a0bd17f9180a34288c0b97e51042112c656c2236ec70d39f97e363d104
+    tags:
+    - flat
+  '261103_145338':
+    split: train
+    images: 36
+    hash: sha256:4b79da24cefea8e444f2779acbda714fbec267880bf86229a14b7a3eaec6378a
+    tags:
+    - flat
+  '261103_150658':
+    split: train
+    images: 34
+    hash: sha256:c10d16ad87b2d051ab20736ba378bb7cc01d77cdc22a4cd656bdf50da7ba50c7
+    tags:
+    - flat
+  '261103_151032':
+    split: train
+    images: 36
+    hash: sha256:1d022bad8c5e559c172a75ea73c100be7063b2a49ce70d456167a918e6cccd24
+    tags:
+    - flat
+  '261103_151139':
+    split: train
+    images: 36
+    hash: sha256:00e4edf5c15eebf16989e5a2e7ab3bcaf7505651020a6ba8593ef84f1a92e67c
+    tags:
+    - flat
+  '261103_151427':
+    split: train
+    images: 100
+    hash: sha256:e53f13ff11973976e8b00188141555a3d55535b1a26831812417eb955be1ad35
+    tags:
+    - flat
+  '261103_152854':
+    split: train
+    images: 99
+    hash: sha256:fabb02ddb007c7227860608465a11381213dea9d40f4e38c6abe9e299c1c7333
+    scene: final2
+    tags:
+    - flat
+  '261103_172158':
+    split: train
+    images: 100
+    hash: sha256:71b7ece741da6f4b059f674ef6a036b47ebdd9085391f8a027f5665ebcc211be
+    scene: circle1_3.0
+    tags:
+    - flat
+  '261103_172559':
+    split: val
+    images: 100
+    hash: sha256:82a1f8ca46c2510fabbbe008b24161d0acee141aa60f953a560947314a5bf6bb
+    scene: circle2_2.5
+    tags:
+    - flat
+  '261103_174132':
+    split: train
+    images: 100
+    hash: sha256:326d78658cc38e5f19fbf8b104b291c0ae8bcdbac1573f52eb204dce7df5c1a4
+    scene: circle3_2.0
+    tags:
+    - flat
+  '261104_153903':
+    split: test
+    images: 100
+    hash: sha256:f78fab7f6098878e54c2170ad3e6407727c4c8dbe7db6e7facb887d00b23ccb4
+    scene: final3
+    tags:
+    - flat
+  '261104_164328':
+    split: test
+    images: 100
+    hash: sha256:c07e4dd463669dda0f72402d97ccda46fe20be5dfa464127d80d3492770c170c
+    scene: gaspore
+    tags:
+    - flat
+  '261105_150842':
+    split: train
+    images: 99
+    hash: sha256:f36dfe29657052aecb34ddf45e977c6b4b5ad322cc64b1898d243fdce83fb67f
+    scene: gaspore2_ctwd10
+    tags:
+    - flat
+  '261105_170901':
+    split: train
+    images: 100
+    hash: sha256:969e0a445cde329da55a586ca4c301ed615503d5779b7a8d4bcb1270e8b44d00
+    scene: gaspore3_ctwd15_판뒤집어서닿는면적좁음
+    tags:
+    - flat
+  '261106_080814':
+    split: train
+    images: 100
+    hash: sha256:bf8e014da05ba4e0bb10328f5052f4afca9aaaad8335c4ee9d8fcba329eaaf1f
+    scene: Ctwd_collection_1
+    tags:
+    - flat
+  '261106_102032':
+    split: train
+    images: 100
+    hash: sha256:2b184166969ec213757a18f347f76470d825bfa1d8ac43545ca1b1c86ba81108
+    tags:
+    - flat
+  '261106_104536':
+    split: train
+    images: 100
+    hash: sha256:4bbcdb1b010066f37ca844d6e26316e78c7be4ac5082651407c4c1de86153933
+    tags:
+    - flat
+  '261106_122002':
+    split: train
+    images: 100
+    hash: sha256:7855338bec6afbb31078d4e7f32088c3aca2597964e2dd60dce0981207751d1a
+    scene: Ctwd_collection_2
+    tags:
+    - flat
+  '261106_125558':
+    split: train
+    images: 36
+    hash: sha256:3a40cb08975b4510b07b310ca0b08b3a64acacd2bf963d6743838b9ae586992f
+    tags:
+    - flat
+  '261106_125845':
+    split: train
+    images: 37
+    hash: sha256:30f1ed3b644f73ea0d3059e043bdc70d6dd09b5977b0d54e119fbaa1235bd61f
+    tags:
+    - flat
+  '261106_130048':
+    split: train
+    images: 100
+    hash: sha256:ddf848139e199ab47224d7e296c0f50e4767ad53db5470f7a19f56d93881d3d7
+    tags:
+    - flat
+  '261106_130648':
+    split: train
+    images: 100
+    hash: sha256:c6b9434703e5f5d7f10ff2f9c68caa47c56575ea04976ac3c74b9aafc2f26b92
+    scene: CTWD_Collection_New_1
+    tags:
+    - flat
+  '261106_131121':
+    split: train
+    images: 100
+    hash: sha256:d13ac50bbf8db764fc177d777087cb56371aa73976544cd298e9328c0a5ffc3d
+    scene: CTWD_Collection_New_2
+    tags:
+    - flat
+  '261106_150912':
+    split: val
+    images: 36
+    hash: sha256:d1f968bcd7e102a949a12876cf2c5511b823d89acd98ec1ae8eeef1ff2642f0b
+    scene: audio100
+    tags:
+    - flat
+  '261106_151019':
+    split: val
+    images: 36
+    hash: sha256:b2db846d8d9ceb7382a38da1b6c1e045319d9259f05742e6af4b08f65ff926d0
+    scene: audio80
+    tags:
+    - flat
+  '261106_151111':
+    split: val
+    images: 36
+    hash: sha256:bcfcd5cdae1c681ae1c6b677a67549db54ee21d2987d2083433b0741673b2504
+    scene: audio60
+    tags:
+    - flat
+  '261106_151208':
+    split: val
+    images: 36
+    hash: sha256:abae241d074589bda616de9fcd893967c0b967c2cf58b228633a3204344a6eb7
+    scene: audio40
+    tags:
+    - flat
+  '261106_151310':
+    split: val
+    images: 36
+    hash: sha256:80d55e040b040c88ac5d28afd1c25645ef7611ba5fa50f7d2d3516fe4fc6fe06
+    scene: audio20
+    tags:
+    - flat
+  '261106_151424':
+    split: val
+    images: 36
+    hash: sha256:563a0ce46747dedad9e3690d562b836298013c081d32aa10df19ed984e11e389
+    scene: audio100
+    tags:
+    - flat
+  '261106_160247':
+    split: train
+    images: 15
+    hash: sha256:b02d07e23da36c5559d929d5daacde855eac4b2c3bfba575a17ccf25a396b86a
+    tags:
+    - flat
+  '261106_160454':
+    split: train
+    images: 100
+    hash: sha256:7a84645c3e0d2484af732a67851750e3c9c1c6401d9144b303fd43be257a92ad
+    scene: ctwd_bayisan
+    tags:
+    - flat
+  '261106_164111':
+    split: train
+    images: 100
+    hash: sha256:28fc81e4032b571e75cd03c50af072480802f1d9c4b43cbb3fb4f07f62da9d7e
+    scene: ctwd
+    tags:
+    - flat
+  '261107_202207':
+    split: train
+    images: 26
+    hash: sha256:0756bd95e067538445f4ef5305368b4ea94e6cb0b8c2e3ab87826938108f13d1
+    tags:
+    - flat
+    - control
+    - Bayesian
+  '261109_141338':
+    split: test
+    images: 100
+    hash: sha256:ffc85f170dc376a24a1830272b8f54fefa8b5abb548293a359f3b8419712119f
+    tags:
+    - flat
+  '261109_154305':
+    split: test
+    images: 37
+    hash: sha256:50afadb63dd3b25b830610f00ed8e79f3e2a711ff4425aea3cba80768361baa4
+    tags:
+    - flat
+  '261109_160248':
+    split: test
+    images: 99
+    hash: sha256:795ec5bad9c08fb1d81db48b05b43a8f1d823c4dfc95e016eb788ef843adbedb
+    tags:
+    - flat
+  '261110_095744':
+    split: train
+    images: 100
+    hash: sha256:5a6a0ebe235d834dc17909b7d16a1d1c6e27d73c3d25241725e7c10c477ffd2e
+    tags:
+    - flat
+  '261110_120041':
+    split: train
+    images: 97
+    hash: sha256:5a77702741f5950c8a113d6da520f860bca693057d7ae75143fffe9ce3d68609
+    tags:
+    - flat
+  '261110_121537':
+    split: train
+    images: 36
+    hash: sha256:6cd3fb983bf4009ce31871f7835fd85c9f40b8dfec7213d2cfbbcd4e62729b48
+    tags:
+    - flat
+  '261110_122057':
+    split: train
+    images: 36
+    hash: sha256:3d3cc2fa984bb40c46aa7b8e071445030c07884bd4d0ca46063beb1760e8e64d
+    tags:
+    - flat
+  '261110_140326':
+    split: test
+    images: 62
+    hash: sha256:dcb00485253019bc0272549eb8cfdea0259138a42d4b075a6cd97e30fc59cc7b
+    tags:
+    - flat
+  '261110_140720':
+    split: test
+    images: 80
+    hash: sha256:2ae992fd18203e063c4a5e22eca91ad121648172be2de1befc93a73b83e85f0a
+    tags:
+    - flat
+  '261110_150305':
+    split: test
+    images: 36
+    hash: sha256:de52688b19776441b50edc1785fd836932df8324802f741856b690141cedbdd4
+    tags:
+    - flat
+skipped:
+  '261024_140209': 1
+  '261024_153504': 1
+  '261025_203616': 1
+  '261025_223137': 3
+  '261025_232033': 1
+  '261025_232600': 1
+  '261102_222736': 1
+  '261102_233731': 2
+  '261103_150658': 1
+  '261105_150842': 1
+  '261110_140720': 4
+processing:
+  crop_sources_sha256: d6589614b50aee80fc2e927504e7f004ff2e205ca64f09c2e6f884d792d1e886
+  session_crops:
+    '261024_134930':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261024_140209':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261024_140851':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261024_153504':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261024_155555':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261025_203616':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261025_204429':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261025_204744':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261025_223137':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261025_231217':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261025_232033':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261025_232600':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261027_113910':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261027_115401':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261027_123246':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261027_132710':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261027_141203':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261027_142545':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261027_144456':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_210333':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_211231':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_214411':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_221322':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_221556':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_222736':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_223525':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_223616':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_223846':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_224000':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_224051':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_224307':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_224846':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_233436':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261102_233731':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_143203':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_144109':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_144522':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_144708':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_145338':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_150658':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_151032':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_151139':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_151427':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_152854':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_172158':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_172559':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261103_174132':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261104_153903':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261104_164328':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261105_150842':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261105_170901':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_080814':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_102032':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_104536':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_122002':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_125558':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_125845':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_130048':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_130648':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_131121':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_150912':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_151019':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_151111':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_151208':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_151310':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_151424':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_160247':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_160454':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261106_164111':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261107_202207':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261109_141338':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261109_154305':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261109_160248':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261110_095744':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261110_120041':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261110_121537':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261110_122057':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261110_140326':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261110_140720':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+    '261110_150305':
+      enabled: true
+      width: 1280
+      height: 1280
+      center_x: 50.0
+      center_y: 50.0
+      auto_crop:
+        enabled: false
+  task: seg
+  names:
+    0: wire
+  seed: 0
+  source:
+    name: kimm
+    path: ../datasets/kimm/raw/[0-9]*
+    labels: labels_seg
+    names:
+      0: wire
+    class_map:
+      wire: wire
+    group_by: session
+    val_ratio: 0.2
+    test_ratio: 0.1
+    val_sessions:
+    - '261025_223137'
+    - '261025_231217'
+    - '261025_232033'
+    - '261025_232600'
+    - '261103_172559'
+    - '261106_150912'
+    - '261106_151019'
+    - '261106_151111'
+    - '261106_151208'
+    - '261106_151310'
+    - '261106_151424'
+    test_sessions:
+    - '261104_153903'
+    - '261104_164328'
+    - '261109_141338'
+    - '261109_154305'
+    - '261109_160248'
+    - '261110_140326'
+    - '261110_140720'
+    - '261110_150305'
+    oversample: 1
+    resize: null
+    type: seg

@@ -7,7 +7,8 @@ raw/<source>/Mono/* 에 OBB 라벨(단일 클래스)을 붙이는 브라우저 �
   · 선택한 환경의 reference/ 누끼·윤곽선을 전처리 설정의 불투명도로 겹쳐 표시
   · 와이어 박스 = 기준 와이어 OBB(reference_tube/wire 레이어, wire_template) 에서 시작해
     우측 상단 꼭짓점(튜브 출구, 피벗)을 기준으로 이동·회전 (+ 두께·길이)
-  · 크롭 창을 앱처럼 W×H · 위치(%) 로 조절하고 환경별 전처리 설정에 저장 (save_crop)
+  · 크롭 창을 앱처럼 W×H · 위치(%) 로 조절하고 세션 crop.yaml 에 저장 (save_crop) —
+    환경 설정의 roi_count 가 2 이상이면 ROI 마다 창 하나 (BestFA: ROI 하나에 와이어 하나)
 한 녹화 세션 안에서는 위치가 거의 같으므로, 1장 맞춰 "일괄 복사"로 그 세션의 나머지에
 뿌린 뒤 어긋난 장만 고쳐 저장하는 흐름을 가정합니다 (복사는 지금 이미지의 세션 안에서만).
 
@@ -58,6 +59,7 @@ from common import raw_image_dir  # noqa: E402
 from dataset_paths import (  # noqa: E402
     DATASETS,
     SESSION_GLOB,
+    WINDOW_KEYS,
     dataset_root,
     ensure_session_meta,
     preprocess_config,
@@ -258,6 +260,7 @@ class Source:
         self.names = self._final_names()
         self.class_id = min(self.names) if self.names else 0
         self.wire_count = int(self.cfg.get("wire_count", 1))
+        self.roi_count = max(1, int(self.cfg.get("roi_count", 1)))   # 세션 crop.yaml 의 ROI 수
         self.dirs = self._resolve_dirs()
 
         # 이미지 파일명 → 그 이미지가 있는 세션 폴더
@@ -322,42 +325,77 @@ class Source:
         dy.write_text(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False),
                       encoding="utf-8")
 
+    def default_rois(self) -> list:
+        """미설정 세션에 제안하는 ROI — 하나면 중앙 1280, 여럿이면 640 을 가로로 나란히."""
+        n = self.roi_count
+        if n == 1:
+            return [{"width": 1280, "height": 1280, "center_x": 50.0, "center_y": 50.0}]
+        return [{"width": 640, "height": 640, "center_x": round(100 * (i + 1) / (n + 1), 1),
+                 "center_y": 50.0} for i in range(n)]
+
     def crop_state(self, name: str | None = None) -> dict | None:
-        """미설정 세션은 중앙 1280 크롭을 제안한다. 저장 전에는 미설정 상태다."""
+        """
+        세션 크롭 — rois 는 언제나 roi_count 개 (UI 가 ROI 마다 같은 조절칸을 쓴다).
+        저장 전이거나 저장된 ROI 수가 roi_count 와 다르면 configured=false (preprocess 가 거부).
+        """
         src = self._source_entry()
         if src is None:
             return None
-        configured = name is not None and (self.dir_of(name) / "crop.yaml").is_file()
-        crop = session_crop(self.dir_of(name)) if configured else {
-            "enabled": True, "width": 1280, "height": 1280,
-            "center_x": 50, "center_y": 50,
-        }
+        exists = name is not None and (self.dir_of(name) / "crop.yaml").is_file()
+        defaults = self.default_rois()
+        rois, configured, note = defaults, False, ""
+        crop = {"enabled": True}
+        if exists:
+            crop = session_crop(self.dir_of(name))
+            # 크롭이 꺼진 파일도 창 값은 남아 있을 수 있다 — 있으면 그대로 보여준다.
+            saved = crop.get("rois") or ([crop] if all(k in crop for k in WINDOW_KEYS) else [])
+            saved = [{"width": int(r["width"]), "height": int(r["height"]),
+                      "center_x": float(r["center_x"]), "center_y": float(r["center_y"])}
+                     for r in saved]
+            configured = len(saved) == self.roi_count or (not crop["enabled"] and self.roi_count == 1)
+            if saved and len(saved) != self.roi_count:
+                note = (f"저장된 ROI {len(saved)}개 — 이 환경은 {self.roi_count}개입니다. "
+                        f"맞춘 뒤 다시 저장하세요.")
+            if len(saved) == self.roi_count:
+                rois = saved
+            elif saved:
+                # 예전 한 창(BestFA 는 오른쪽 와이어만 담았음)을 ROI 1 에 그대로 두면 순서가 뒤집힌다 —
+                # 나란히 놓은 기본 배치에서 시작하되 크기·높이만 이어받는다.
+                rois = [{**r, "width": saved[0]["width"], "height": saved[0]["height"],
+                         "center_y": saved[0]["center_y"]} for r in defaults]
         return {"configured": configured, "enabled": bool(crop.get("enabled")),
-                "width": int(crop.get("width") or 0), "height": int(crop.get("height") or 0),
-                "center_x": float(crop.get("center_x", 50)),
-                "center_y": float(crop.get("center_y", 50)),
+                "rois": rois, "roi_count": self.roi_count, "note": note,
                 "auto": bool((crop.get("auto_crop") or {}).get("enabled"))}
 
     def save_crop(self, values: dict) -> dict:
-        """현재 이미지가 속한 세션에 고정 크롭을 저장한다."""
+        """
+        현재 이미지가 속한 세션에 고정 크롭을 저장한다. roi_count 가 1 이면 예전 한 창 형식
+        (width/height/center_x/center_y — KIMM · 앱이 그대로 읽음), 여럿이면 rois 목록.
+        """
         name = safe_name(values.get("name", ""))
         directory = self.dir_of(name)
-        crop = {"enabled": bool(values["enabled"]),
-                "width": int(values["width"]), "height": int(values["height"]),
-                "center_x": float(values["center_x"]), "center_y": float(values["center_y"]),
-                "auto_crop": {"enabled": False}}
-        if crop["width"] < 0 or crop["height"] < 0:
-            raise ValueError("크롭 크기는 0 이상이어야 합니다")
-        if not all(math.isfinite(crop[k]) and 0 <= crop[k] <= 100 for k in ("center_x", "center_y")):
-            raise ValueError("크롭 위치는 0~100%여야 합니다")
+        rois = values.get("rois")
+        if not isinstance(rois, list) or len(rois) != self.roi_count:
+            raise ValueError(f"ROI {self.roi_count}개가 필요합니다")
+        rois = [{"width": int(r["width"]), "height": int(r["height"]),
+                 "center_x": float(r["center_x"]), "center_y": float(r["center_y"])} for r in rois]
+        for i, r in enumerate(rois, 1):
+            if r["width"] < 0 or r["height"] < 0:
+                raise ValueError(f"ROI {i}: 크롭 크기는 0 이상이어야 합니다")
+            if not all(math.isfinite(r[k]) and 0 <= r[k] <= 100 for k in ("center_x", "center_y")):
+                raise ValueError(f"ROI {i}: 크롭 위치는 0~100%여야 합니다")
         path = directory / "crop.yaml"
         previous = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else {}
         previous = previous if isinstance(previous, dict) else {}
-        previous.update(crop)
-        crop = previous
-        path = directory / "crop.yaml"
+        # 다른 형식의 창 키는 지운다 — 두 형식이 섞이면 어느 쪽이 쓰일지 헷갈린다.
+        for key in ("rois", *WINDOW_KEYS):
+            previous.pop(key, None)
+        crop = {**previous, "enabled": bool(values["enabled"]),
+                **(rois[0] if self.roi_count == 1 else {"rois": rois}),
+                "auto_crop": {"enabled": False}}
         temp = path.with_suffix(".yaml.tmp")
-        temp.write_text(yaml.safe_dump(crop, sort_keys=False), encoding="utf-8")
+        # default_flow_style=None: ROI 항목은 한 줄씩 ({width: 640, …})
+        temp.write_text(yaml.safe_dump(crop, sort_keys=False, default_flow_style=None), encoding="utf-8")
         os.replace(temp, path)
         return self.crop_state(name)
 
@@ -670,12 +708,13 @@ def make_handler(source: Source | None = None, ref: dict | None = None, *, defau
                         with Image.open(fp) as im:
                             w, h = im.size
                         results = []
-                        for points in instances:
+                        for i, points in enumerate(instances):
                             if method == "obb":
                                 result = {"status": "ok", "edges": [],
                                           "polygon": [[x * w, y * h] for x, y in points]}
                             elif method == "2":
-                                result = find_tip2(fp, points)
+                                # 와이어 2개(BestFA)의 오른쪽 와이어 = 옆면 하이라이트가 심함 (edge2 docstring 7)
+                                result = find_tip2(fp, points, highlight=len(instances) == 2 and i == 1)
                             else:
                                 result = find_tip(fp, points)
                             results.append(result)

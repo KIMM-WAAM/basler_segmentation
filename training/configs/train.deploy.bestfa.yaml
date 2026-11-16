@@ -1,0 +1,8 @@
+# BestFA 배포용: train+val 전체로 학습 + ONNX export. 앱 반영은 archive.py → weights/deploy.yaml.
+# epochs = train.split.bestfa 결과로 정한다 (18 은 예전 261026 데이터 11/09 실행 기준 — 새 데이터로 다시 정할 것).
+base: base/train.bestfa.yaml
+
+train:
+  data: ../datasets/bestfa/processed_seg/data.all.yaml
+  epochs: 18
+  name: bestfa-yolo26s-seg-deploy

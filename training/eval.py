@@ -22,13 +22,15 @@ visualize.baseline 을 켜면(기본) 폴리곤마다 가장 아래 두 점의 y
 점선을 긋고 그 y 픽셀값을 적습니다 — wire 끝 높이 오차를 눈으로 바로 재기 위한 것.
 
 데이터 위생:
-  · 학습 중 선택 지표(best·early stop)는 val 세션         → eval.single.yaml
-  · test 세션은 측정용 모델(train.single)에 딱 한 번만    → eval.final.yaml
+  · test 세션은 측정용 모델(train.split)에 딱 한 번만    → eval.split.kimm.yaml
+    (BestFA 는 test 가 없어 val 이 독립 평가             → eval.split.bestfa.yaml)
+  · 배포 모델(train.deploy)은 val 로 동작만 확인         → eval.deploy.*.yaml
+    val 이 학습에 포함되어 점수는 독립 평가가 아닙니다.
     이 수치로 하이퍼파라미터를 다시 만지면 그 순간 오염되어 논문에 쓸 수 없습니다.
 
 사용법:
-    python eval.py --config eval.single.yaml
-    python eval.py --config eval.final.yaml     # 최종 1회만
+    python eval.py --config eval.split.kimm.yaml     # test, 최종 1회만
+    python eval.py --config eval.deploy.kimm.yaml
 """
 from __future__ import annotations
 

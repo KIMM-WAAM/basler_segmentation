@@ -1,0 +1,13 @@
+# KIMM 측정용 모델의 최종 평가: test 세션. 딱 한 번만 — 이 수치로 설정을 다시 만지면 오염된다.
+dataset: kimm
+weights: runs/kimm/segment/kimm-yolo26s-seg-split/weights/best.pt  # 타임스탬프 생략: 가장 최근 실행
+data: ../datasets/kimm/processed_seg/data.yaml
+split: test
+imgsz: 640
+device: "0"
+visualize:
+  enabled: true
+  out: eval/kimm
+  count: 20  # 0: split 전체
+  conf: 0.25  # 시각화할 예측의 최소 점수
+  baseline: true  # 와이어 끝 높이 표시

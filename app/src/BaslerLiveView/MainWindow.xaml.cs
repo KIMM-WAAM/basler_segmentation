@@ -1,11 +1,14 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Rectangle = System.Windows.Shapes.Rectangle;
 using Basler.Pylon;
 
 namespace BaslerLiveView;
@@ -22,19 +25,22 @@ public partial class MainWindow : Window
     // resolved under Models\ beside the exe. Falls back to the config default.
     private readonly string _modelPath;
 
-    // The crop window feeds segmentation and mirrors what training/preprocess.py
-    // will cut the recorded PNGs down to. With hardware ROI enabled, the camera
-    // already crops this window, so software cropping must be bypassed.
-    private readonly FrameCropper _cropper = new();
+    // The crop windows feed inference and mirror what training/preprocess.py will cut the
+    // recorded PNGs down to — one per ROI (config.xml <Crop><Roi>; BestFA: two, one wire
+    // each, same order as the labeller's ROI 1 / ROI 2). The toolbar edits the selected one.
+    // With hardware ROI enabled, the camera already crops the (single) window, so software
+    // cropping must be bypassed.
+    private readonly FrameCropper[] _croppers;
+    private int _activeRoi;
+    private readonly RoiOutline[] _outlines;
+    private readonly CropSubmission[] _submissions;
     private readonly FrameRecorder _recorder;
 
-    // Latest annotated crop from the segmentation worker, pasted back into the full
-    // frame at the crop window's position. Written by the segmentation thread, read
-    // by the grab thread → guarded by _overlayLock.
+    // Latest inference drawings from the worker, one per ROI, laid over the full frame at
+    // each crop window's position. Written by the inference thread, read by the grab
+    // thread → guarded by _overlayLock.
     private readonly object _overlayLock = new();
-    private byte[] _overlay = Array.Empty<byte>();
-    private int _overlayWidth;
-    private int _overlayHeight;
+    private InferenceLayer[] _layers = Array.Empty<InferenceLayer>();
     private bool _hasOverlay;
 
     // Scratch full-frame buffer used to composite the overlay; grab thread only.
@@ -73,12 +79,23 @@ public partial class MainWindow : Window
             Dispatcher.BeginInvoke(() => StatusText.Text = "Recording error: " + ex.Message);
         Title += " — " + _config.CaptureEnvironment;
 
-        // Seed the crop controls from config; the handler pushes them onto _cropper.
+        // One cropper (+ on-screen outline) per ROI, seeded from config. The toolbar shows the
+        // selected ROI; its handlers push the values back onto that cropper.
+        _croppers = _config.CropRois.Select(r => new FrameCropper
+        {
+            Width = r.Width, Height = r.Height, CenterXPercent = r.CenterX, CenterYPercent = r.CenterY,
+        }).ToArray();
+        _submissions = new CropSubmission[_croppers.Length];
+        _outlines = _croppers.Select(_ => new RoiOutline(OverlayCanvas)).ToArray();
+        if (_croppers.Length > 1)
+        {
+            for (int i = 0; i < _croppers.Length; i++)
+                RoiCombo.Items.Add($"ROI {i + 1}");
+            RoiCombo.SelectedIndex = 0;
+            RoiCombo.Visibility = Visibility.Visible;
+        }
         CropCheck.IsChecked = _config.CropEnabled;
-        CropWidthBox.Text = _config.CropWidth.ToString();
-        CropHeightBox.Text = _config.CropHeight.ToString();
-        CropXSlider.Value = _config.CropCenterX;
-        CropYSlider.Value = _config.CropCenterY;
+        ShowActiveRoi();
         _cropUiReady = true;
         ApplyCropSettings();
         CropControls.IsEnabled = !_config.HardwareRoi;
@@ -95,7 +112,12 @@ public partial class MainWindow : Window
         _camera.ErrorOccurred += ex => Dispatcher.BeginInvoke(() => StatusText.Text = "Error: " + ex.Message);
         _camera.FrameReady += OnFrameReady;
 
-        Loaded += (_, _) => RefreshCameras();
+        Loaded += (_, _) =>
+        {
+            RefreshCameras();
+            if (_config.Warning != null)
+                StatusText.Text = _config.Warning + "  |  " + StatusText.Text;
+        };
     }
 
     /// <summary>Short one-line description of the configured segmentation model:
@@ -297,21 +319,49 @@ public partial class MainWindow : Window
         CropYSlider.Value = 50;
     }
 
-    /// <summary>Push the toolbar's crop controls onto the cropper. Invalid or empty
-    /// size text is simply ignored, so typing "6" on the way to "640" is harmless.
-    /// 0 is accepted and means the full frame on that axis (preprocess.py convention).</summary>
+    private void Roi_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_cropUiReady || RoiCombo.SelectedIndex < 0) return;
+        _activeRoi = RoiCombo.SelectedIndex;
+        _cropUiReady = false;           // populating the controls must not write back
+        ShowActiveRoi();
+        _cropUiReady = true;
+        ApplyCropSettings();
+    }
+
+    /// <summary>Load the selected ROI's window into the toolbar controls.</summary>
+    private void ShowActiveRoi()
+    {
+        var c = _croppers[_activeRoi];
+        CropWidthBox.Text = c.Width.ToString();
+        CropHeightBox.Text = c.Height.ToString();
+        CropXSlider.Value = c.CenterXPercent;
+        CropYSlider.Value = c.CenterYPercent;
+    }
+
+    /// <summary>Croppers in use this frame: every ROI while cropping is on; with cropping off
+    /// (or hardware ROI) just the first, which then passes the whole frame through.</summary>
+    private int ActiveRoiCount => _croppers[0].Enabled ? _croppers.Length : 1;
+
+    /// <summary>Push the toolbar's crop controls onto the selected ROI's cropper. Invalid or
+    /// empty size text is simply ignored, so typing "6" on the way to "640" is harmless.
+    /// 0 is accepted and means the full frame on that axis (preprocess.py convention).
+    /// The Crop checkbox switches every ROI together.</summary>
     private void ApplyCropSettings()
     {
         if (!_cropUiReady) return;
 
-        _cropper.Enabled = !_config.HardwareRoi && CropCheck.IsChecked == true;
-        if (int.TryParse(CropWidthBox.Text, out int w) && w >= 0) _cropper.Width = w;
-        if (int.TryParse(CropHeightBox.Text, out int h) && h >= 0) _cropper.Height = h;
-        _cropper.CenterXPercent = CropXSlider.Value;
-        _cropper.CenterYPercent = CropYSlider.Value;
+        bool enabled = !_config.HardwareRoi && CropCheck.IsChecked == true;
+        foreach (var c in _croppers)
+            c.Enabled = enabled;
+        var cropper = _croppers[_activeRoi];
+        if (int.TryParse(CropWidthBox.Text, out int w) && w >= 0) cropper.Width = w;
+        if (int.TryParse(CropHeightBox.Text, out int h) && h >= 0) cropper.Height = h;
+        cropper.CenterXPercent = CropXSlider.Value;
+        cropper.CenterYPercent = CropYSlider.Value;
 
-        CropXText.Text = $"{CropXSlider.Value:F0}%";
-        CropYText.Text = $"{CropYSlider.Value:F0}%";
+        CropXText.Text = $"{CropXSlider.Value:F1}%";
+        CropYText.Text = $"{CropYSlider.Value:F1}%";
 
         UpdateCropOverlay();
     }
@@ -319,47 +369,81 @@ public partial class MainWindow : Window
     private void ViewHost_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateCropOverlay();
 
     /// <summary>
-    /// Draw the crop window over the live image. The image is shown with
+    /// Draw the crop windows over the live image. The image is shown with
     /// <c>Stretch="Uniform"</c>, so it is letterboxed inside the host: reproduce that
     /// fit here to map crop pixels onto screen coordinates. Hidden until a frame has
     /// arrived — the source resolution is unknown before that.
     /// </summary>
     private void UpdateCropOverlay()
     {
-        int x = 0, y = 0, w = 0, h = 0;
-        bool show = _bmpWidth > 0 && _bmpHeight > 0
-                    && ViewHost.ActualWidth > 0 && ViewHost.ActualHeight > 0
-                    && _cropper.TryGetWindow(_bmpWidth, _bmpHeight, out x, out y, out w, out h);
-
-        var visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        CropRectShadow.Visibility = visibility;
-        CropRectLine.Visibility = visibility;
-        CropRectLabelBox.Visibility = visibility;
-        if (!show) return;
-
-        double scale = Math.Min(ViewHost.ActualWidth / _bmpWidth, ViewHost.ActualHeight / _bmpHeight);
+        bool ready = _bmpWidth > 0 && _bmpHeight > 0
+                     && ViewHost.ActualWidth > 0 && ViewHost.ActualHeight > 0;
+        double scale = ready ? Math.Min(ViewHost.ActualWidth / _bmpWidth, ViewHost.ActualHeight / _bmpHeight) : 0;
         double originX = (ViewHost.ActualWidth - _bmpWidth * scale) / 2;
         double originY = (ViewHost.ActualHeight - _bmpHeight * scale) / 2;
+        bool multi = _croppers.Length > 1;
 
-        double left = originX + x * scale;
-        double top = originY + y * scale;
-        double rectW = w * scale;
-        double rectH = h * scale;
-
-        foreach (var rect in new[] { CropRectShadow, CropRectLine })
+        for (int i = 0; i < _croppers.Length; i++)
         {
-            Canvas.SetLeft(rect, left);
-            Canvas.SetTop(rect, top);
-            rect.Width = rectW;
-            rect.Height = rectH;
+            var c = _croppers[i];
+            int x = 0, y = 0, w = 0, h = 0;
+            bool show = ready && c.TryGetWindow(_bmpWidth, _bmpHeight, out x, out y, out w, out h);
+            string label = (multi ? $"ROI {i + 1}  " : "") +
+                           $"{w}×{h}  ({c.CenterXPercent:F1}%, {c.CenterYPercent:F1}%)";
+            // The selected ROI solid, the others dashed (only matters with several).
+            _outlines[i].Place(show, originX + x * scale, originY + y * scale, w * scale, h * scale,
+                label, active: !multi || i == _activeRoi, labelInside: i > 0);
+        }
+    }
+
+    /// <summary>One ROI's on-screen outline, same look as the labeller: dark under-stroke so
+    /// the red line reads on bright and dark backgrounds, plus a size/position label.</summary>
+    private sealed class RoiOutline
+    {
+        private readonly Rectangle _shadow = new() { Stroke = new SolidColorBrush(Color.FromArgb(0xB0, 0, 0, 0)), StrokeThickness = 4 };
+        private readonly Rectangle _line = new() { Stroke = new SolidColorBrush(Color.FromRgb(0xFF, 0x3B, 0x30)), StrokeThickness = 2 };
+        private readonly TextBlock _label = new()
+        {
+            Foreground = new SolidColorBrush(Color.FromRgb(0xFF, 0x6B, 0x60)), FontSize = 11, FontWeight = FontWeights.Bold,
+        };
+        private readonly Border _labelBox;
+
+        public RoiOutline(Canvas canvas)
+        {
+            _labelBox = new Border { Background = new SolidColorBrush(Color.FromArgb(0xB0, 0, 0, 0)), Padding = new Thickness(4, 1, 4, 1), Child = _label };
+            foreach (UIElement e in new UIElement[] { _shadow, _line, _labelBox })
+            {
+                e.Visibility = Visibility.Collapsed;
+                canvas.Children.Add(e);
+            }
         }
 
-        CropRectLabel.Text = $"{w}×{h}  ({CropXSlider.Value:F0}%, {CropYSlider.Value:F0}%)";
-        Canvas.SetLeft(CropRectLabelBox, left);
-        // Above the box normally; tucked inside when it would fall off the top edge.
-        CropRectLabelBox.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double labelHeight = CropRectLabelBox.DesiredSize.Height;
-        Canvas.SetTop(CropRectLabelBox, top - labelHeight - 2 >= 0 ? top - labelHeight - 2 : top + 2);
+        public void Place(bool show, double left, double top, double width, double height,
+            string label, bool active, bool labelInside)
+        {
+            var visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            _shadow.Visibility = _line.Visibility = _labelBox.Visibility = visibility;
+            if (!show) return;
+
+            foreach (var rect in new[] { _shadow, _line })
+            {
+                Canvas.SetLeft(rect, left);
+                Canvas.SetTop(rect, top);
+                rect.Width = width;
+                rect.Height = height;
+            }
+            _line.StrokeDashArray = active ? null : new DoubleCollection { 3, 2 };
+            _line.Opacity = _labelBox.Opacity = active ? 1 : 0.6;
+
+            _label.Text = label;
+            Canvas.SetLeft(_labelBox, left);
+            // Above the box normally; tucked inside when it would fall off the top edge. Later
+            // ROIs put theirs inside at the bottom so neighbouring labels don't collide.
+            _labelBox.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            double labelHeight = _labelBox.DesiredSize.Height;
+            Canvas.SetTop(_labelBox, labelInside ? top + height - labelHeight - 2
+                : top - labelHeight - 2 >= 0 ? top - labelHeight - 2 : top + 2);
+        }
     }
 
     // --- Recording --------------------------------------------------------
@@ -405,18 +489,24 @@ public partial class MainWindow : Window
         var infer = _infer;
         if (_inferEnabled && infer != null)
         {
-            // Inference runs on the crop only — the same region the training
-            // images will be cut down to, so the model sees at inference exactly the
-            // framing it was trained on. Use the toolbar sliders to find it, then put
-            // the same numbers into training/configs/preprocess.kimm.yaml: identical 0–100% convention.
-            var cropped = _cropper.Crop(width, height, bgra, out int cw, out int ch, out int cx, out int cy);
+            // Inference runs on the crops only — the same regions the training
+            // images are cut down to (the session's crop.yaml ROIs in the labeller), so the
+            // model sees at inference exactly the framing it was trained on. Each cropper
+            // owns its output buffer, so the crops stay valid side by side until Submit.
+            int count = ActiveRoiCount;
+            for (int i = 0; i < count; i++)
+            {
+                var cropped = _croppers[i].Crop(width, height, bgra, out int cw, out int ch, out int cx, out int cy);
+                // Include the camera ROI offset so "full" remains a sensor coordinate
+                // in both modes, even when the camera rounded the requested ROI.
+                _submissions[i] = new CropSubmission(cw, ch, cropped,
+                    _camera.Roi.InferenceOrigin(cx, cy, !ReferenceEquals(cropped, bgra)));
+            }
 
-            // Submit() copies the pixels out of the reused buffer immediately, so we
-            // can return without blocking the grab loop; the annotated result arrives
-            // later via OnInferredFrame and is pasted in by Compose() below.
-            // Include the camera ROI offset so "full" remains a sensor coordinate
-            // in both modes, even when the camera rounded the requested ROI.
-            infer.Submit(cw, ch, cropped, _camera.Roi.InferenceOrigin(cx, cy, !ReferenceEquals(cropped, bgra)));
+            // Submit() copies the pixels out of the reused buffers immediately, so we
+            // can return without blocking the grab loop; the drawings arrive later via
+            // OnInferredFrame and are laid over the frame by Compose() below.
+            infer.Submit(_submissions, count);
             bgra = Compose(width, height, bgra);
         }
 
@@ -433,14 +523,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Copy the full frame into a scratch buffer and paste the newest annotated crop
-    /// back over its own region, so the operator sees the whole sensor image with the
-    /// segmentation drawn inside the crop window. Grab thread only.
+    /// Copy the full frame into a scratch buffer and lay each ROI's newest inference drawing
+    /// over its own window, so the operator sees the live sensor image with masks, boxes and
+    /// tip dots drawn inside the crop windows. Only drawn pixels are copied (a layer is 0
+    /// elsewhere), so overlapping ROIs keep both drawings and the rest of the view stays
+    /// live. Grab thread only.
     ///
-    /// Inference lags the grab rate, so the pasted region is a few frames old — the
-    /// same staleness the annotated view always had, now confined to the crop. If the
-    /// crop size changed since the result was produced the overlay is skipped rather
-    /// than stretched; the next inference brings it back a fraction of a second later.
+    /// Inference lags the grab rate, so the drawings are a few frames old. If a crop size
+    /// changed since the result was produced that layer is skipped rather than stretched;
+    /// the next inference brings it back a fraction of a second later.
     /// </summary>
     private byte[] Compose(int width, int height, byte[] bgra)
     {
@@ -451,31 +542,38 @@ public partial class MainWindow : Window
 
         lock (_overlayLock)
         {
-            _cropper.TryGetWindow(width, height, out int x, out int y, out int cw, out int ch);
-            if (_hasOverlay && cw == _overlayWidth && ch == _overlayHeight)
+            if (!_hasOverlay) return _composed;
+            var dst = MemoryMarshal.Cast<byte, uint>(_composed.AsSpan(0, needed));
+            int count = Math.Min(_layers.Length, ActiveRoiCount);
+            for (int i = 0; i < count; i++)
             {
-                int srcStride = cw * 4;
-                int dstStride = width * 4;
+                var layer = _layers[i];
+                _croppers[i].TryGetWindow(width, height, out int x, out int y, out int cw, out int ch);
+                if (cw != layer.Width || ch != layer.Height) continue;
+                var src = MemoryMarshal.Cast<byte, uint>(layer.Bgra.AsSpan(0, cw * ch * 4));
                 for (int row = 0; row < ch; row++)
-                    Buffer.BlockCopy(_overlay, row * srcStride, _composed, (y + row) * dstStride + x * 4, srcStride);
+                {
+                    var s = src.Slice(row * cw, cw);
+                    var d = dst.Slice((y + row) * width + x, cw);
+                    for (int j = 0; j < s.Length; j++)
+                        if (s[j] != 0) d[j] = s[j];
+                }
             }
         }
 
         return _composed;
     }
 
-    // Raised on the segmentation worker thread. The service alternates two output buffers,
-    // so the previous one is reused as soon as this returns — swapping the reference under
-    // _overlayLock (which Compose also holds while reading) is what keeps that safe. It is
-    // not rendered directly: display is driven entirely by the grab loop, which pastes
-    // this in at the crop window's position (see Compose).
-    private void OnInferredFrame(int width, int height, byte[] bgra)
+    // Raised on the inference worker thread. The service alternates two output buffers per
+    // ROI, so the previous ones are reused as soon as this returns — swapping the references
+    // under _overlayLock (which Compose also holds while reading) is what keeps that safe.
+    // They are not rendered directly: display is driven entirely by the grab loop, which lays
+    // them over the frame at the crop windows' positions (see Compose).
+    private void OnInferredFrame(InferenceLayer[] layers)
     {
         lock (_overlayLock)
         {
-            _overlay = bgra;
-            _overlayWidth = width;
-            _overlayHeight = height;
+            _layers = layers;
             _hasOverlay = true;
         }
 

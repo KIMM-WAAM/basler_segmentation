@@ -1,8 +1,0 @@
-# 평가 설정. val은 모델 선택, test는 최종 확인에 사용.
-base: base/eval.yaml
-dataset: kimm
-weights: runs/kimm/segment/yolo26s-seg-finetune/weights/best.pt
-data: ../datasets/kimm/processed_seg/data.yaml
-split: test
-visualize:
-  out: eval/kimm

@@ -44,10 +44,13 @@ def test_log_uniform_and_invalid_ranges():
 
 
 def test_config_inheritance_and_overlay():
+    # 기본값은 base 에서만 고정 — 실험 config 는 감마를 덮어쓸 수 있다 (예: crop200 의 0.2~2.0)
+    for path in Path("configs/base").glob("train.*.yaml"):
+        assert load_yaml(path)["train"]["gamma"] == {"p": 0.8, "gain": [0.5, 2.0]}
     for path in Path("configs").glob("train.*.yaml"):
         cfg = load_yaml(path)["train"]
-        assert cfg["gamma"] == {"p": 0.8, "gain": [0.5, 2.0]}
-        albumentations_list(cfg)
+        assert cfg["gamma"]["p"] == 0.8
+        albumentations_list(cfg)   # Gamma 가 gain 범위를 검증
         assert isinstance(cfg["augmentations"][0], Gamma)
         assert "gamma" not in cfg
     hyp = dict.fromkeys(["degrees", "scale", "translate", "shear", "perspective", "hsv_v"], 0)
