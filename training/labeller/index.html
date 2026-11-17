@@ -319,6 +319,7 @@
   <div id="film-grip" title="위아래로 끌어 목록 높이 조절 · 더블클릭 = 기본 높이"></div>
   이 세션 목록 — 초록 = 라벨됨 · 아래 줄: <span style="color:var(--seg)">경계 OK</span> /
   <span style="color:#f0c26a">낮음</span> / <span style="color:#e05050">못 찾음</span>
+  (방금 계산한 결과, 없으면 저장된 seg 의 저장 당시 판정 — 칸에 마우스를 올리면 지표)
   <div id="film"></div>
 </div>
 
@@ -527,13 +528,40 @@ function renderFilm() {
     const f = files[i];
     const d = document.createElement("div");
     const e = edges.get(f.name);
+    // 아래 줄 색 = 이 브라우저에서 계산한 경계 판정, 없으면 저장된 seg 의 판정(seg_scores.json)
+    const computed = e && e.status !== "saved";
+    const status = computed ? e.status : (f.seg && f.seg_info ? f.seg_info.status : null);
     d.className = "cell" + (f.labeled ? " labeled" : "") + (i === idx ? " current" : "") +
-                  (e && EDGE_CLASS[e.status] ? " " + EDGE_CLASS[e.status] : "");
+                  (status && EDGE_CLASS[status] ? " " + EDGE_CLASS[status] : "");
     d.textContent = k + 1;
-    d.title = f.name;
+    d.title = f.name + (computed ? `\n경계 계산: ${e.status}` + (f.seg ? " · seg 저장됨" : "")
+                                 : f.seg ? `\nseg 저장됨 — ${segInfoText(f.seg_info)}` : "");
     d.onclick = () => goTo(i);
     film.appendChild(d);
   });
+}
+
+/** 저장된 seg 의 판정 문구 — "edge 2 · 와이어 1: ok (둘레 100% · 튐 0.12 · …) · 와이어 2: …". */
+function segInfoText(info) {
+  if (!info) return "판정 기록 없음 (기록 기능 전에 저장된 seg)";
+  const wire = (w, i) => {
+    const s = w.score || {};
+    const detail = s.arc != null
+      ? `둘레 ${Math.round(s.arc * 100)}% · 튐 ${s.radius} · 옆면 ${s.side}px · 매끄러움 ${s.smooth}px`
+      : w.columns ? `띠 ${w.inliers}/${w.columns} · 잔차 ${w.rms == null ? "-" : Number(w.rms).toFixed(1)}px` : "";
+    const fail = s.fail && s.fail.length ? ` — ${s.fail.join(", ")}` : "";
+    return `와이어 ${i + 1}: ${w.status}${detail ? ` (${detail})` : ""}${fail}`;
+  };
+  return `${EDGE_METHOD_NAME[info.method] || info.method || "?"} · ` +
+         (info.wires && info.wires.length ? info.wires.map(wire).join(" · ") : info.status);
+}
+
+/** seg 를 저장할 때 같이 보내는 판정 — 그 폴리곤을 낸 경계 계산 결과 (저장된 seg 를 다시 저장하면 없음). */
+function segScore(r) {
+  if (!r || r.method === "saved") return null;
+  return { method: r.method, status: r.status,
+           wires: (r.instances || [r]).map(w => ({ status: w.status, score: w.score || null,
+                                                    inliers: w.inliers, columns: w.columns, rms: w.rms, tip: w.tip })) };
 }
 
 // 목록 높이 조절 — 목록은 화면 아래에 고정이라, 손잡이를 위로 끌면 이미지 아래쪽을 덮으며
@@ -1225,7 +1253,7 @@ function renderEdgeInfo() {
   const r = f && edges.get(f.name);
   if (!r) { el.textContent = ""; return; }
   if (r.method === "saved" && !labelDirty) {
-    el.textContent = `저장된 seg · 와이어 ${r.instances.length}개 (재계산하지 않음)`;
+    el.textContent = `저장된 seg · 와이어 ${r.instances.length}개 · 저장 당시 판정: ${segInfoText(f.seg_info)}`;
     return;
   }
   if (!saved) { el.textContent = "박스를 바꿔서 경계가 맞지 않습니다 — 저장 후 다시 계산하세요."; return; }
@@ -1360,11 +1388,11 @@ function edgePolygons(result) {
 async function saveSeg(names) {
   if (!names.length) return;
   try {
+    const scores = new Map(names.map(n => [n, segScore(edges.get(n))]));
     const res = await post("/api/seg", {
-      items: names.map(n => ({ name: n, polygons: edgePolygons(edges.get(n)) })),
+      items: names.map(n => ({ name: n, polygons: edgePolygons(edges.get(n)), score: scores.get(n) })),
     });
-    const done = new Set(names);
-    for (const f of files) if (done.has(f.name)) f.seg = true;
+    for (const f of files) if (scores.has(f.name)) { f.seg = true; f.seg_info = scores.get(f.name); }
     renderLists();
     draw();
     setStatus(`seg 저장: ${res.written}장 → labels_seg/`);
@@ -1432,6 +1460,7 @@ async function saveCurrent() {
     await post("/api/label", { name, instances: normalizedBoxes() });
     files[idx].labeled = true;
     files[idx].seg = false;            // 서버가 낡은 seg 를 지웠다 (OBB 가 바뀜)
+    files[idx].seg_info = null;
     saved = true;
     labelDirty = false;
     edges.delete(name);
@@ -1449,6 +1478,7 @@ async function clearCurrent() {
     await post("/api/label", { name, points: null });
     files[idx].labeled = false;
     files[idx].seg = false;
+    files[idx].seg_info = null;
     resetAllWires();
     saved = false;
     labelDirty = false;

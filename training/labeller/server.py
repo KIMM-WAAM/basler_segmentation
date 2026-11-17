@@ -71,6 +71,59 @@ IMG_EXTS = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
            ".bmp": "image/bmp", ".webp": "image/webp"}
 INDEX_HTML = HERE / "index.html"
 CROP_KEYS = ("enabled", "width", "height", "center_x", "center_y")
+# seg 를 저장할 때의 경계 판정(method · ok/low/no_tip · 와이어별 지표) — YOLO seg 라벨에는 담을 수 없어
+# 세션 폴더에 따로 둔다 (이미지 이름 → 판정). 라벨러 아래쪽 목록이 저장된 seg 의 판정을 다시 계산하지
+# 않고 보여 준다. 전처리·학습은 읽지 않는다. OBB 가 바뀌거나 seg·이미지가 지워지면 그 항목도 지운다.
+SEG_SCORES = "seg_scores.json"
+_scores_lock = Lock()
+
+
+def read_seg_scores(session: Path) -> dict:
+    p = Path(session) / SEG_SCORES
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def update_seg_scores(session: Path, updates: dict) -> None:
+    """{이미지 이름: 판정 또는 None(지움)} 을 반영해 원자적으로 다시 쓴다 (비면 파일 삭제)."""
+    if not updates:
+        return
+    p = Path(session) / SEG_SCORES
+    with _scores_lock:
+        data = read_seg_scores(session)
+        before = len(data)
+        for name, entry in updates.items():
+            if entry is None:
+                data.pop(name, None)
+            else:
+                data[name] = entry
+        if not data:
+            if before:
+                p.unlink(missing_ok=True)
+            return
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, p)
+
+
+def seg_score_entry(raw) -> dict | None:
+    """라벨러가 보낸 판정에서 저장할 것만 — {method, status, wires: [{status, score?, inliers?, …}]}."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("status"), str):
+        return None
+    wires = []
+    for w in raw.get("wires") or []:
+        if not isinstance(w, dict):
+            continue
+        keep = {k: w[k] for k in ("status", "score", "inliers", "columns", "rms", "tip") if w.get(k) is not None}
+        wires.append(keep)
+    return {"method": str(raw.get("method") or ""), "status": raw["status"], "wires": wires}
+
+
 # "완전히 검은 이미지" — 가장 밝은 픽셀이 이 값 이하 (0~255). 2026-11 KIMM·BestFA 원본에서 빈 프레임은
 # 전부 ≤ 10 이었고, 그다음 무리는 15 이상(어둡지만 장면이 있음)이라 그 사이로 잡았다.
 BLACK_MAX = 10
@@ -466,8 +519,10 @@ class Source:
             flat = " ".join(f"{max(0.0, min(1.0, v)):.6f}" for xy in points for v in xy)
             lines.append(f"{self.class_id} {flat}\n")
         p = self.label_path(name)
-        # seg 폴리곤은 이 OBB 의 윗변·옆변으로 만든 것이라, OBB 가 바뀌면 낡는다 → 같이 지움
-        self.seg_path(name).unlink(missing_ok=True)
+        # seg 폴리곤은 이 OBB 의 윗변·옆변으로 만든 것이라, OBB 가 바뀌면 낡는다 → 같이 지움 (판정 기록도)
+        if self.seg_path(name).exists():
+            self.seg_path(name).unlink()
+            update_seg_scores(self.dir_of(name), {name: None})
         if not lines:
             p.unlink(missing_ok=True)
             return
@@ -487,6 +542,7 @@ class Source:
             if src.exists():
                 (trash / sub).mkdir(parents=True, exist_ok=True)
                 os.replace(src, trash / sub / fname)
+        update_seg_scores(d, {name: None})
         del self._owner[name]
         return trash
 
@@ -529,8 +585,11 @@ class Source:
     def write_seg(self, name: str, polygon: list) -> None:
         self.write_seg_polygons(name, [polygon])
 
-    def write_seg_polygons(self, name: str, polygons: list) -> None:
-        """폴리곤(이미지 px) → labels_seg/<이름>.txt (YOLO seg: 클래스 + 정규화 x y …)."""
+    def write_seg_polygons(self, name: str, polygons: list, score: dict | None = None) -> None:
+        """
+        폴리곤(이미지 px) → labels_seg/<이름>.txt (YOLO seg: 클래스 + 정규화 x y …).
+        score = 그 폴리곤을 낸 경계 판정 (seg_score_entry) — seg_scores.json 에 같이 남긴다 (없으면 지움).
+        """
         if not polygons:
             raise ValueError(f"{name}: 저장할 폴리곤이 없습니다")
         for polygon in polygons:
@@ -548,6 +607,7 @@ class Source:
         p = self.seg_path(name)
         p.parent.mkdir(exist_ok=True)
         p.write_text("".join(lines), encoding="utf-8")
+        update_seg_scores(self.dir_of(name), {name: seg_score_entry(score)})
 
 
 def validate_polygon(points, minimum: int, exact: bool = False) -> None:
@@ -679,10 +739,15 @@ def make_handler(source: Source | None = None, ref: dict | None = None, *, defau
                 elif path in ("/ref/cutout.png", "/ref/outline.png") and overlay:
                     self._file(overlay[path[len("/ref/"):-len(".png")]], "image/png")
                 elif path == "/api/images":
-                    self._json({"images": [{"name": n, "dir": source.dir_of(n).name,
-                                            "labeled": source.label_path(n).exists(),
-                                            "seg": source.seg_path(n).exists()}
-                                           for n in source.images()]})
+                    # seg_info = 저장된 seg 의 판정 (seg_scores.json) — 목록 칸의 아래 줄 색 · 툴팁
+                    scores = {d.name: read_seg_scores(d) for d in source.dirs}
+                    images = []
+                    for n in source.images():
+                        d = source.dir_of(n)
+                        seg = source.seg_path(n).exists()
+                        images.append({"name": n, "dir": d.name, "labeled": source.label_path(n).exists(),
+                                       "seg": seg, "seg_info": scores.get(d.name, {}).get(n) if seg else None})
+                    self._json({"images": images})
                 elif path == "/api/crop":
                     name = safe_name(query.get("name", [""])[0])
                     self._json({"crop": source.crop_state(name)})
@@ -821,10 +886,11 @@ def make_handler(source: Source | None = None, ref: dict | None = None, *, defau
                                     "sessions": per, "total": len(source.images())})
                 elif url.path == "/api/seg":
                     # {"items": [{"name", "polygon": [[x, y], …] (이미지 px)}, …]} → labels_seg/
+                    # 항목마다 score(그 폴리곤을 낸 경계 판정)를 함께 받으면 seg_scores.json 에 남긴다
                     items = self._body().get("items") or []
                     for it in items:
                         polygons = it.get("polygons") if "polygons" in it else [it["polygon"]]
-                        source.write_seg_polygons(safe_name(it["name"]), polygons)
+                        source.write_seg_polygons(safe_name(it["name"]), polygons, it.get("score"))
                     self._json({"ok": True, "written": len(items)})
                 elif url.path == "/api/crop":
                     self._json({"ok": True, "crop": source.save_crop(self._body())})
