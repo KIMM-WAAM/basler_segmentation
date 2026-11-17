@@ -108,9 +108,10 @@ public sealed class InferenceService : IDisposable
         _yolo = new Yolo(new YoloOptions
         {
             ExecutionProvider = new DirectMLExecutionProvider(modelPath, gpuId),
-            // Stretch to the model's input size; matches the segmentation demo defaults.
+            // Stretch to the model's input size. Linear sampling like training (Ultralytics resizes with
+            // linear/area interpolation; a 2x shrink of a 1280 crop averages 2x2) — Nearest skipped pixels.
             ImageResize = ImageResize.Stretched,
-            SamplingOptions = new(SKFilterMode.Nearest, SKMipmapMode.None),
+            SamplingOptions = new(SKFilterMode.Linear, SKMipmapMode.None),
         });
 
         // YoloDotNet reads the task from the ONNX metadata but only exposes it through

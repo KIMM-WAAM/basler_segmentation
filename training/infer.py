@@ -13,7 +13,7 @@
 - 경로는 적은 그대로 먼저, 없으면 training/ 기준으로 찾는다. weights 는 타임스탬프를 뺀
   runs/<…>/<name>/weights/best.pt 로 적으면 그 name 의 최신 실행 (resolve_weights).
 - seg / obb 모델 모두 — 그림은 render.py (bbox 없이 마스크·OBB 윤곽). 왼쪽 위에 파일명과
-  검출마다 클래스·점수·와이어 끝점(OBB 아랫변 중점, 그림에 점) 픽셀 좌표 — 크롭 기준, 크롭했으면
+  검출마다 클래스·점수·와이어 끝점(render.mask_tip — 앱 · WAAM WireTip 과 같은 정의, OBB 모델은 아랫변 중점, 그림에 점) 픽셀 좌표 — 크롭 기준, 크롭했으면
   원본(풀 프레임) 좌표도. 기본 검출 수는 크롭 창(ROI)마다 wire_count / roi_count (겹친 중복 검출 제거).
 """
 from __future__ import annotations
