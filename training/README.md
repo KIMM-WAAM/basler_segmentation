@@ -270,7 +270,7 @@ BestFA 는 `offset_x: [-5, 5]`, `offset_y: [0, 5]` — 좌우 ±5%p · 아래로
 - **export 만**: `stages: {preview_aug: false, train: false, export: true}` — 최신 실행의 체크포인트를 ONNX 로.
   내보낼 체크포인트는 `export.weights` (기본 `[best]`, base config 는 `[best, last]`) → `weights/best.onnx` · `last.onnx`.
 - **배포**: 학습은 앱을 건드리지 않는다. 쓸 실행을 `uv run archive.py runs/<task>/<name>/<시각>` (또는 task
-  `archive`) 로 저장소 루트 `weights/` 에 보관(Git LFS)하고, `weights/deploy.yaml` 에서
+  `archive`) 로 저장소 루트 `weights/` 에 보관(git 밖 — 빌드할 PC 에는 직접 복사)하고, `weights/deploy.yaml` 에서
   `yolo26s-seg.onnx: yolo26s-seg-all/<시각>` 처럼 고른 뒤 커밋 → 앱 빌드가 그 `best.onnx` 를 실행 파일 옆
   `Models/` 로 복사한다. 이력은 deploy.yaml 의 git 이력. 앱은 모델 파일을 보고 seg/obb 를 알아서 고른다.
 - **기록 · 재현**: 실행 폴더에 아래가 남고, `archive.py` 가 `weights/` 로 함께 보관한다 (`provenance.py`).

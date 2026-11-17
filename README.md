@@ -93,7 +93,7 @@ dotnet build app/basler_segmentation.sln
 설정은 [app/src/BaslerLiveView/config/config.xml](app/src/BaslerLiveView/config/config.xml) —
 녹화 폴더·기준 이미지 같은 상대경로는 저장소 루트(`.git` 이 있는 폴더) 기준.
 추론 모델은 `<Inference><Model>` — seg / obb 모델을 파일에서 알아서 구분한다. 그 파일은 빌드가
-[weights/deploy.yaml](weights/deploy.yaml) 에서 고른 보관본을 복사한 것 (clone 뒤 `git lfs pull` 필요).
+[weights/deploy.yaml](weights/deploy.yaml) 에서 고른 보관본을 복사한 것 (보관본은 git 밖 — 빌드할 PC 에 학습 서버에서 직접 옮겨 둔다).
 자세한 건 [app/src/BaslerLiveView/README.md](app/src/BaslerLiveView/README.md).
 `<Camera><hardware_roi>false</hardware_roi></Camera>`가 기본이며, `true`이면 `<Crop>` 영역을
 카메라 하드웨어 ROI로 수신·저장합니다. 설정 변경 후 앱을 다시 실행합니다.

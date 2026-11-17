@@ -8,7 +8,7 @@
                               + data/<소스>.manifest.yaml · .files.tsv   그때의 manifest 사본
                               + 커밋 안 된 수정이 있으면 code.patch (git diff HEAD)
   export   (train.py)     →  .onnx 메타데이터에 train_commit · train_dirty · train_run · train_config
-  보관     (archive.py)   →  ../weights/<name>/<시각>/ 에 위 기록째로 복사 (git 에 커밋)
+  보관     (archive.py)   →  ../weights/<name>/<시각>/ 에 위 기록째로 복사 (git 밖, 학습 서버에 보관)
 
 지문(hash)은 원본 이미지 바이트 + 최종 라벨 + split 으로 계산한다 — 같으면 학습이 본 데이터가
 똑같고, 라벨 한 줄만 고쳐도 달라진다. 전체 지문에는 전처리 설정(크롭 · 클래스 등)도 들어간다.

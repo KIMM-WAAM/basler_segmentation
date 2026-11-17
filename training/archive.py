@@ -1,5 +1,5 @@
 """
-학습 실행 하나를 저장소 루트 weights/ 에 보관 (git · Git LFS 로 관리).
+학습 실행 하나를 저장소 루트 weights/ 에 보관 (git 밖 — weights/deploy.yaml 만 추적).
 
     uv run archive.py runs/segment/yolo26s-seg-all/261022_151611
     uv run archive.py runs/obb/yolo26s-obb-all/261022_153600
@@ -79,7 +79,8 @@ def main() -> None:
           f"dirty={git.get('dirty')}")
     for p in sorted(q for q in dest.rglob("*") if q.is_file()):
         print(f"  {p.relative_to(dest).as_posix():18s} {p.stat().st_size / 1e6:7.1f} MB")
-    print("[archive] git add weights/ 후 커밋 — .pt · .onnx 는 Git LFS 로 올라간다 (.gitattributes)")
+    print("[archive] weights/ 는 git 밖 — 앱에 쓰려면 weights/deploy.yaml 에서 고르고 커밋, "
+          "빌드할 PC 에는 이 폴더를 직접 복사")
 
 
 if __name__ == "__main__":

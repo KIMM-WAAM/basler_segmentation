@@ -38,15 +38,16 @@
 
   <!--
     ONNX models (segmentation or OBB) come from the repo-root weights\ folder: archived
-    training runs, tracked with Git LFS. weights\deploy.yaml picks one run per app model
+    training runs, kept out of git (only weights\deploy.yaml and README are tracked).
+    weights\deploy.yaml picks one run per app model
     name, one "name: <name>/<stamp>" per line, e.g.
 
         yolo26s-seg.onnx: yolo26s-seg-all/261022_151611
 
     and this target copies weights\<run>\weights\best.onnx to $(OutDir)Models\<name>,
     where the app looks up config.xml <Inference><Model>. Deploying = edit that file,
-    commit, rebuild. A fresh clone needs `git lfs pull` first (otherwise best.onnx is a
-    small LFS pointer and the model fails to load).
+    commit, rebuild. A fresh clone has no archived runs: copy weights\<run>\ from the
+    training server first (otherwise the build stops with "not found").
   -->
   <PropertyGroup>
     <WeightsDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..\..\weights'))\</WeightsDir>
@@ -72,7 +73,7 @@
       <_DeployModel Include="@(_DeployEntry->'$(WeightsDir)%(Run)\weights\best.onnx')" />
     </ItemGroup>
     <Error Condition="!Exists('%(_DeployModel.Identity)')"
-           Text="weights\deploy.yaml: %(_DeployModel.ModelName) → %(_DeployModel.Identity) not found (archive the run with training/archive.py, or `git lfs pull`)." />
+           Text="weights\deploy.yaml: %(_DeployModel.ModelName) → %(_DeployModel.Identity) not found (archive the run with training/archive.py, or copy weights\%(_DeployModel.Run)\ from the training server)." />
     <Copy SourceFiles="@(_DeployModel)" DestinationFiles="@(_DeployModel->'$(OutDir)Models\%(ModelName)')" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Model %(_DeployModel.ModelName) ← %(_DeployModel.Identity)" />
   </Target>

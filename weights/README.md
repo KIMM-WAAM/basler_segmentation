@@ -1,8 +1,11 @@
 # weights/
 
-남겨 둘 학습 결과만 골라 두는 곳. `training/runs/` 는 git 밖이라 지우거나 PC 를 바꾸면
-사라지므로, 관심 있는 실행만 여기로 복사해 git 으로 관리한다. 여기의 `.pt` · `.onnx` 만
-**Git LFS** 로 올라간다 (`.gitattributes`) — clone 한 뒤 `git lfs pull` 이 필요할 수 있다.
+남겨 둘 학습 결과(앱에 넣을 후보)만 골라 두는 곳. **git 밖이다** — `deploy.yaml` 과 이 README 만
+추적한다 (`.gitignore`). 보관본 원본은 학습 서버에 두고, 사전학습 가중치(`yolo26*.pt`)는
+Ultralytics 가 필요할 때 다시 받는다.
+
+clone 한 PC 에는 보관본이 없다. 앱을 빌드할 PC 에는 `deploy.yaml` 이 가리키는
+`weights/<name>/<시각>/weights/best.onnx` 를 학습 서버에서 직접 옮겨 둔다 (없으면 빌드 에러).
 
 모양은 `training/runs/<task>/` 아래와 같다 — `<name>/<YYMMDD_HHMMSS>/`:
 

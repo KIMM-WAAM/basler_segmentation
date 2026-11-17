@@ -155,7 +155,7 @@
     },
     {
       "label": "archive — weights/ 에 보관",
-      "detail": "runs/ 의 실행 하나를 저장소 루트 weights/<name>/<시각>/ 로 복사 (best·last·onnx·args·run_info, Git LFS)",
+      "detail": "runs/ 의 실행 하나를 저장소 루트 weights/<name>/<시각>/ 로 복사 (best·last·onnx·args·run_info, git 밖)",
       "type": "process",
       "command": "uv",
       "args": [
