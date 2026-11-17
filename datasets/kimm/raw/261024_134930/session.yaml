@@ -1,0 +1,16 @@
+id: '261024_134930'
+env: kimm
+scene: Bayesian A
+tags: [slope_steep, control, Bayesian]
+wire_count: 1
+notes: basler_data 뽑음 87장 / 원본 조명 프레임 87장
+
+# ── waiting_to_raw.py 가 옮길 때 남긴 기록 (자동) ──
+imported:
+  at: '2026-11-13T15:53:13+09:00'
+  from: waiting/261024_134930
+  image_dir: Mono
+  images: 87
+  renamed: 87
+  other_files:
+  - crop.yaml

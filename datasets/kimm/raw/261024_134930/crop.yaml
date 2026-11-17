@@ -1,0 +1,7 @@
+enabled: true
+width: 1280
+height: 1280
+center_x: 50.0
+center_y: 50.0
+auto_crop:
+  enabled: false

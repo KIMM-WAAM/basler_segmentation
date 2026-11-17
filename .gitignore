@@ -23,9 +23,10 @@
 /datasets/kimm/*
 !/datasets/kimm/raw/
 /datasets/kimm/raw/*
-!/datasets/kimm/raw/260928_204214/
-/datasets/kimm/raw/260928_204214/*/*
-!/datasets/kimm/raw/260928_204214/*/000001__cap_260928_204214.*
+# 샘플 = 지금 KIMM 데이터의 train 세션 261024_134930 중 1장 (디스크 데이터는 그대로라 데이터 지문 불변)
+!/datasets/kimm/raw/261024_134930/
+/datasets/kimm/raw/261024_134930/*/*
+!/datasets/kimm/raw/261024_134930/*/261024_134930__00_00_30_466.*
 # 기구부 기준 레이어 — 앱 기준 오버레이(cutout · outline)와 라벨러 기준 와이어(tube · wire).
 # 원본 reference.png 와 미리보기는 빼 둔다 (make_reference_cutout.py 로 다시 만들 때만 필요).
 !/datasets/kimm/reference/
