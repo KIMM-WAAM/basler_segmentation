@@ -22,6 +22,9 @@ train:
   batch: -1  # -1: GPU 메모리에 맞춘 자동 배치
   device: "0"  # GPU 인덱스 또는 cpu
   workers: 8
+  # fp32 학습. AMP(fp16) 를 켜면 마스크 헤드 proto.cv2 의 BN 분산이 epoch 50 쯤 fp16 상한(65504)에 닿고
+  # epoch 113 에서 넘쳐 마스크가 죽었다 (11/16 split, mask mAP 0.745 → 0). KIMM 은 같은 층이 최대 245 로 안전.
+  amp: false
   resume: false
   seed: 0
   save_period: 5  # 체크포인트 저장 간격 (epoch)

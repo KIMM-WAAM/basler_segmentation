@@ -248,7 +248,7 @@ BestFA 는 `offset_x: [-5, 5]`, `offset_y: [0, 5]` — 좌우 ±5%p · 아래로
 | `train.split.kimm.yaml` | seg | train 세션 / val·test 분리 | 60 epoch, val 로 best 선택 | 측정용 (export 안 함) |
 | `train.split.bestfa.yaml` | seg | BestFA train / val 세션 분리 (test 없음) | 60 epoch, val 로 best 선택 | 측정용 (export 안 함) |
 | `train.deploy.kimm.yaml` | seg | train+val+test 전체 | 41 epoch | ONNX export → 배포 |
-| `train.deploy.bestfa.yaml` | seg | train+val 전체 | 18 epoch | ONNX export → 배포 |
+| `train.deploy.bestfa.yaml` | seg | train+val 전체 | 54 epoch | ONNX export → 배포 |
 
 - **배포 순서**: `split`으로 학습하고 평가한 뒤, `deploy`로 전체 데이터를 학습해 배포한다.
   `deploy`의 `epochs`는 `split`의 best epoch로 손으로 맞춘다 (자동 갱신 안 됨).
@@ -258,6 +258,10 @@ BestFA 는 `offset_x: [-5, 5]`, `offset_y: [0, 5]` — 좌우 ±5%p · 아래로
 - **optimizer는 AdamW lr 0.002로 고정**한다. `auto`는 총 iteration이 10,000을 넘으면 MuSGD(lr 0.01)를
   고르는데, 그 실행은 best가 4~6 epoch에서 나온 뒤 무너졌다 (KIMM mask mAP50-95 0.58 vs AdamW 0.81).
   early stopping도 끄고(`patience: 0`) cosine LR을 끝까지 내린다.
+- **BestFA는 fp32 학습(`amp: false`)**. AMP로 돌린 11/16 split은 마스크 헤드 `proto.cv2`의 BN 분산이 epoch 50쯤
+  fp16 상한(65504)에 닿고 epoch 113에서 넘쳐 마스크가 죽었다 (mask mAP 0.745 → 0, 박스는 정상).
+  Ultralytics NaN 복구는 마지막 배치 loss만 봐서 잡지 못하고, 체크포인트 저장 시 NaN을 0으로 바꿔 파일로는 안 보인다.
+  체크포인트는 늘 fp16으로 저장되므로 분산이 65504를 넘는 채널은 저장 시 잘린다 — epoch 54 best.pt는 영향 없음(val 0.7447).
 - **KIMM 증강**: 이동 ±5%, 회전 ±5°, 확대·축소 0.9~1.1배, 밝기·감마 0.5~2배(확률 0.8), 블러(확률 0.2).
   원본 크롭 이동·기울이기·원근·좌우 반전은 끈다 (11/09 분리 실험 C).
 - **BestFA 증강**: 세션 ROI 위치에서 좌우 ±5%p · 아래로 0~5%p 이동, 회전 ±25°, 확대·축소 0.8~1.2배, 기울이기 ±2°, 원근 0.0002,
